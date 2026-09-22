@@ -28,35 +28,68 @@ flowchart TD
 
 ### Component view
 
+The component view below separates the iOS presentation/state layer, the HTTP/API boundary, backend application layers, and external AI providers. `NewsRequest` and `NewsResponse` are the shared contract represented independently as Pydantic models in Python and Codable models in Swift.
+
 ```mermaid
 flowchart LR
-    subgraph iOS[NewsJev iOS app]
-        View[ContentView.swift\nSwiftUI presentation]
-        Store[NewsStore.swift\n@Observable state]
-        APIClient[NewsAPIService.swift\nURLSession + JSON]
-        Model[NewsModel.swift\nCodable models]
-        View --> Store --> APIClient
-        APIClient --> Model
+    subgraph Client[NewsJev iOS client]
+        direction TB
+        App[NewsJevApp.swift\nSwiftUI app entry point]
+        UI[ContentView.swift\nInput, loading, result and error views]
+        State[NewsStore.swift\n@Observable @MainActor state]
+        SwiftModels[NewsModel.swift\nNewsRequest / NewsResponse Codable]
+        HTTP[NewsAPIService.swift\nURLSession HTTP client]
+
+        App --> UI
+        UI --> State
+        State --> HTTP
+        HTTP -. encodes/decodes .-> SwiftModels
     end
 
-    subgraph Backend[jev-news-classifier]
-        Main[app/main.py\nFastAPI application]
-        Route[app/api/routes/news.py\nHTTP route]
-        Schema[app/models/news.py\nPydantic schemas]
-        Classifier[app/services/classifier_service.py\nconfidence routing]
-        Main --> Route --> Schema
-        Route --> Classifier
+    subgraph Boundary[HTTP and JSON boundary]
+        Request[POST /api/v1/news/classify\n{ text: String }]
+        Response[NewsResponse JSON\ncategory, confidence, summary, review]
     end
 
-    JEV[JevService\nTypeSafe SDK]
-    Gemini[GeminiService\nGoogle GenAI SDK]
+    subgraph Server[Python FastAPI backend]
+        direction TB
+        Bootstrap[app/main.py\nFastAPI app + / + /health]
+        Routes[app/api/routes/news.py\nAPIRouter + classify endpoint]
+        Schemas[app/models/news.py\nNewsRequest / NewsResponse Pydantic]
+        Orchestrator[app/services/classifier_service.py\nconfidence-based orchestration]
+        Bootstrap --> Routes
+        Routes --> Schemas
+        Routes --> Orchestrator
+    end
 
-    APIClient -- HTTP POST --> Main
-    Classifier --> JEV
-    Classifier --> Gemini
-    JEV --> Classifier
-    Gemini --> Classifier
+    subgraph Providers[External AI providers]
+        JEV[app/services/jev_service.py\nTypeSafeClient\njev-1.13.0]
+        Gemini[app/services/gemini_service.py\nGoogle GenAI client\ngemini-3.6-flash]
+    end
+
+    HTTP --> Request
+    Request --> Routes
+    Schemas --> Orchestrator
+    Orchestrator --> JEV
+    Orchestrator --> Gemini
+    JEV --> Orchestrator
+    Gemini --> Orchestrator
+    Orchestrator --> Response
+    Response --> HTTP
 ```
+
+### Component responsibilities
+
+| Component | Responsibility |
+| --- | --- |
+| `ContentView` | Collects text, starts classification, and renders loading, error, confidence, probability, summary, and review states. |
+| `NewsStore` | Owns the main-actor UI state machine: `idle`, `loading`, `loaded`, and `error`. |
+| `NewsAPIService` | Builds the request, sends JSON over `URLSession`, validates HTTP status codes, and decodes `NewsResponse`. |
+| `main.py` and `news.py` | Create the FastAPI application and expose `POST /api/v1/news/classify`. |
+| `news.py` models | Validate the minimum five-character input and define the response schema. |
+| `ClassifierService` | Coordinates JEV and Gemini and applies the confidence and specificity routing policy. |
+| `JevService` | Uses TypeSafe JEV to select a category and assess specificity with confidence/probability data. |
+| `GeminiService` | Generates a one-sentence summary and provides fallback messages for provider failures. |
 
 ### Request flow
 
