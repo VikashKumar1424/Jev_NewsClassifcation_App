@@ -1,10 +1,10 @@
 # JEV News Classifier
 
-A SwiftUI iOS app backed by a Python FastAPI service for classifying news. The backend uses JEV to determine a news category and specificity, then routes lower-confidence or ambiguous inputs to Google Gemini for a concise summary and human-review signal. The iOS client presents the category, confidence, probabilities, processing path, summary, and review status.
+A SwiftUI iOS app backed by a Python FastAPI service for classifying news. The backend uses JEV to determine a news category and specificity, then routes lower-confidence or ambiguous inputs to Google Gemini for a concise summary and human-review signal.
 
 ## Architecture
 
-The classification pipeline uses JEV as the first-stage classifier. It evaluates both the news category and whether the input is specific enough to classify. Medium- or low-confidence and non-specific inputs are enriched with a Gemini summary. If Gemini returns a server/API error, the backend returns a safe fallback summary and marks the result for human review.
+The classification pipeline uses JEV as the first-stage classifier. It evaluates both the news category and whether the input is specific enough to classify. Medium- or low-confidence and non-specific inputs are enriched with a Gemini summary.
 
 ```mermaid
 flowchart TD
@@ -28,8 +28,6 @@ flowchart TD
 
 ### Component view
 
-The component view below separates the iOS presentation/state layer, the HTTP/API boundary, backend application layers, and external AI providers. `NewsRequest` and `NewsResponse` are the shared contract represented independently as Pydantic models in Python and Codable models in Swift.
-
 ```mermaid
 flowchart LR
     subgraph Client[NewsJev iOS client]
@@ -39,7 +37,6 @@ flowchart LR
         State[NewsStore.swift\n@Observable @MainActor state]
         SwiftModels[NewsModel.swift\nNewsRequest / NewsResponse Codable]
         HTTP[NewsAPIService.swift\nURLSession HTTP client]
-
         App --> UI
         UI --> State
         State --> HTTP
@@ -78,28 +75,35 @@ flowchart LR
     Response --> HTTP
 ```
 
-### Component responsibilities
+### Frontend component responsibilities
 
 | Component | Responsibility |
 | --- | --- |
-| `ContentView` | Collects text, starts classification, and renders loading, error, confidence, probability, summary, and review states. |
-| `NewsStore` | Owns the main-actor UI state machine: `idle`, `loading`, `loaded`, and `error`. |
-| `NewsAPIService` | Builds the request, sends JSON over `URLSession`, validates HTTP status codes, and decodes `NewsResponse`. |
-| `main.py` and `news.py` | Create the FastAPI application and expose `POST /api/v1/news/classify`. |
-| `news.py` models | Validate the minimum five-character input and define the response schema. |
-| `ClassifierService` | Coordinates JEV and Gemini and applies the confidence and specificity routing policy. |
-| `JevService` | Uses TypeSafe JEV to select a category and assess specificity with confidence/probability data. |
-| `GeminiService` | Generates a one-sentence summary and provides fallback messages for provider failures. |
+| `NewsJevApp.swift` | SwiftUI application entry point. Creates the app window and presents `ContentView`. |
+| `ContentView.swift` | Presentation layer. Collects headline/article text, enables the classify action, displays loading and error states, and renders category, confidence, probabilities, summary, processing path, and human-review information. |
+| `NewsStore.swift` | Main-actor observable state layer. Coordinates classification and exposes the `idle`, `loading`, `loaded`, and `error` states to the view. |
+| `NewsAPIService.swift` | Networking layer. Builds the `POST /api/v1/news/classify` request, encodes the request body, validates HTTP responses, maps API failures to `APIError`, and decodes the response. |
+| `NewsModel.swift` | API contract layer. Defines the Codable `NewsRequest` and `NewsResponse` models and maps snake_case backend fields such as `needs_human_review` to Swift properties. |
+
+### Backend component responsibilities
+
+| Component | Responsibility |
+| --- | --- |
+| `app/main.py` | Application bootstrap. Creates the FastAPI app, registers the news router, and exposes the root and `/health` endpoints. |
+| `app/api/routes/news.py` | HTTP/API layer. Defines the `/api/v1/news` router, accepts `NewsRequest`, invokes `ClassifierService`, and returns a validated `NewsResponse`. |
+| `app/models/news.py` | Validation and schema layer. Enforces the five-character minimum for incoming text and defines the response fields returned to the iOS client. |
+| `app/services/classifier_service.py` | Orchestration and policy layer. Calls JEV first, evaluates specificity and confidence thresholds, decides whether Gemini is needed, and assembles the final result. |
+| `app/services/jev_service.py` | JEV integration layer. Creates the TypeSafe client, defines the supported categories and specificity criteria, and returns category/specificity confidence and probabilities. |
+| `app/services/gemini_service.py` | Gemini integration layer. Generates a concise summary for ambiguous or lower-confidence input and returns safe fallback messages when Gemini fails. |
 
 ### Request flow
 
 1. `ContentView` collects the news text and asks `NewsStore` to classify it.
 2. `NewsAPIService` sends the text as JSON to `POST /api/v1/news/classify`.
 3. FastAPI validates the request with `NewsRequest` and delegates to `ClassifierService`.
-4. `JevService` classifies the text into one of `technology`, `business`, `sports`, `politics`, `entertainment`, `science`, `health`, or `other`, and evaluates specificity.
-5. `ClassifierService` applies the confidence policy: high-confidence specific results use JEV only; medium/low-confidence or non-specific results call `GeminiService`.
-6. `GeminiService` returns a concise summary on success. If Gemini is unavailable, it returns a fallback message and the result requires human review.
-7. The response is decoded into `NewsResponse` and rendered by the SwiftUI result card.
+4. `JevService` classifies the text into `technology`, `business`, `sports`, `politics`, `entertainment`, `science`, `health`, or `other`, and evaluates specificity.
+5. `ClassifierService` uses JEV only for specific high-confidence results. Medium/low-confidence or non-specific results call `GeminiService`.
+6. The response is decoded into `NewsResponse` and rendered by the SwiftUI result card.
 
 ## Repository layout
 
@@ -109,23 +113,23 @@ flowchart LR
 │   ├── NewsJev.xcodeproj/          # Xcode project
 │   └── NewsJev/
 │       ├── NewsJevApp.swift        # SwiftUI application entry point
-│       ├── UI/ContentView.swift    # Input form, loading, errors, and results
-│       ├── State/NewsStore.swift   # Main-actor observable state and actions
-│       ├── Model/NewsModel.swift   # Codable API request/response models
+│       ├── UI/ContentView.swift    # Input form and result presentation
+│       ├── State/NewsStore.swift   # Observable state and actions
+│       ├── Model/NewsModel.swift   # Codable API models
 │       └── APIServices/
-│           └── NewsAPIService.swift # HTTP client and API error handling
+│           └── NewsAPIService.swift # HTTP client and error handling
 ├── jev-news-classifier/
 │   ├── app/
 │   │   ├── main.py                 # FastAPI app and health endpoints
 │   │   ├── api/routes/news.py      # News classification route
-│   │   ├── models/news.py          # Pydantic request/response schemas
+│   │   ├── models/news.py          # Pydantic schemas
 │   │   └── services/
-│   │       ├── classifier_service.py # Routing and confidence thresholds
+│   │       ├── classifier_service.py # Routing and thresholds
 │   │       ├── jev_service.py        # TypeSafe JEV classification
-│   │       └── gemini_service.py     # Gemini summarization and fallbacks
-│   ├── pyproject.toml              # Python 3.12 project metadata/dependencies
-│   ├── uv.lock                     # Locked Python dependency resolution
-│   └── tests/test_news.py           # Backend test module
+│   │       └── gemini_service.py     # Gemini summaries and fallbacks
+│   ├── pyproject.toml              # Python project metadata/dependencies
+│   ├── uv.lock                     # Locked dependency resolution
+│   └── tests/test_news.py           # Backend tests
 └── README.md
 ```
 
@@ -145,7 +149,7 @@ flowchart LR
 - `TYPESAFE_API_KEY`
 - `GOOGLE_API_KEY`
 
-The services load environment variables from a `.env` file in the backend working directory. Create `jev-news-classifier/.env`:
+Create `jev-news-classifier/.env`:
 
 ```env
 TYPESAFE_API_KEY=your_typesafe_api_key
@@ -162,21 +166,12 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-The API is then available at `http://127.0.0.1:8000`. FastAPI's interactive documentation is available at `http://127.0.0.1:8000/docs`.
+The API is available at `http://127.0.0.1:8000`. Interactive documentation is available at `http://127.0.0.1:8000/docs`.
 
 ### Health check
 
 ```bash
 curl http://127.0.0.1:8000/health
-```
-
-Expected response:
-
-```json
-{
-  "status": "ok",
-  "service": "jev-news-classifier"
-}
 ```
 
 ### Classify news with curl
@@ -191,13 +186,13 @@ The response includes `category`, `confidence`, `probabilities`, `summary`, `nee
 
 ## iOS setup
 
-1. Start the backend locally using the commands above.
+1. Start the backend using the commands above.
 2. Open `NewsJev_ios/NewsJev.xcodeproj` in Xcode.
 3. Select the `NewsJev` scheme and an iOS Simulator or connected device.
 4. Build and run the app.
 5. Enter a headline or article and tap **Classify News**.
 
-The current development API URL is configured in `NewsJev_ios/NewsJev/APIServices/NewsAPIService.swift` as `http://127.0.0.1:8000`. This works for an iOS Simulator running on the same Mac. For a physical device, replace it with the Mac's LAN IP address and ensure the device can reach the backend.
+The development API URL is configured in `NewsJev_ios/NewsJev/APIServices/NewsAPIService.swift` as `http://127.0.0.1:8000`. This works for an iOS Simulator running on the same Mac. For a physical device, use the Mac's LAN IP address and ensure the device can reach the backend.
 
 ## API reference
 
@@ -239,8 +234,6 @@ Response shape:
 
 ## Testing
 
-Run the backend test suite from the backend directory:
-
 ```bash
 cd jev-news-classifier
 uv run pytest
@@ -250,7 +243,7 @@ uv run pytest
 
 - The iOS client currently targets a local backend URL rather than a deployed API.
 - The backend imports `load_dotenv` from `python-dotenv`; if `uv sync` reports that this package is missing, add `python-dotenv` to the project dependencies and refresh `uv.lock`.
-- The repository includes Python bytecode under `app/**/__pycache__`; these generated files are not part of the runtime architecture and should generally be excluded from version control.
+- Python bytecode under `app/**/__pycache__` is generated and should generally be excluded from version control.
 
 ## License
 
