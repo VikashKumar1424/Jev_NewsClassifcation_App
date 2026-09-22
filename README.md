@@ -4,44 +4,58 @@ A SwiftUI iOS app backed by a Python FastAPI service for classifying news. The b
 
 ## Architecture
 
+The classification pipeline uses JEV as the first-stage classifier. It evaluates both the news category and whether the input is specific enough to classify. Medium- or low-confidence and non-specific inputs are enriched with a Gemini summary. If Gemini returns a server/API error, the backend returns a safe fallback summary and marks the result for human review.
+
+```mermaid
+flowchart TD
+    Input[News text from SwiftUI] --> API[FastAPI POST /api/v1/news/classify]
+    API --> Classifier[ClassifierService]
+    Classifier --> JEV[JevService / TypeSafe JEV]
+    JEV --> Decision{Specific and confidence >= 0.90?}
+    Decision -- Yes --> JEVResult[JEV-only result]
+    Decision -- No --> Gemini[GeminiService / Gemini Flash]
+    Gemini --> GeminiResult{Gemini response}
+    GeminiResult -- Success --> Enriched[Summary + classification]
+    GeminiResult -- Server/API error --> Fallback[Fallback summary]
+    JEVResult --> Response[NewsResponse JSON]
+    Enriched --> Response
+    Fallback --> Review[needs_human_review = true]
+    Review --> Response
+    Response --> APIClient[NewsAPIService / URLSession]
+    APIClient --> Store[NewsStore]
+    Store --> UI[ContentView result card]
+```
+
+### Component view
+
 ```mermaid
 flowchart LR
-    User[User enters headline or article\nin SwiftUI app]
-
     subgraph iOS[NewsJev iOS app]
         View[ContentView.swift\nSwiftUI presentation]
         Store[NewsStore.swift\n@Observable state]
-        API[NewsAPIService.swift\nURLSession + JSON]
-        Model[NewsModel.swift\nCodable request/response]
-        View --> Store
-        Store --> API
-        API --> Model
+        APIClient[NewsAPIService.swift\nURLSession + JSON]
+        Model[NewsModel.swift\nCodable models]
+        View --> Store --> APIClient
+        APIClient --> Model
     end
 
-    subgraph Backend[Python backend: jev-news-classifier]
-        FastAPI[app/main.py\nFastAPI application]
-        Route[app/api/routes/news.py\nPOST /api/v1/news/classify]
-        Schema[app/models/news.py\nPydantic validation]
-        Classifier[app/services/classifier_service.py\nconfidence-based routing]
-        FastAPI --> Route
-        Route --> Schema
+    subgraph Backend[jev-news-classifier]
+        Main[app/main.py\nFastAPI application]
+        Route[app/api/routes/news.py\nHTTP route]
+        Schema[app/models/news.py\nPydantic schemas]
+        Classifier[app/services/classifier_service.py\nconfidence routing]
+        Main --> Route --> Schema
         Route --> Classifier
     end
 
-    JEV[JevService\nTypeSafe JEV model\ncategory + specificity]
-    Gemini[GeminiService\nGoogle Gemini\nsummary enrichment]
-    Response[NewsResponse\nclassification result]
+    JEV[JevService\nTypeSafe SDK]
+    Gemini[GeminiService\nGoogle GenAI SDK]
 
-    User --> View
-    API -- HTTP POST JSON --> FastAPI
+    APIClient -- HTTP POST --> Main
     Classifier --> JEV
-    Classifier -- vague, medium, or low confidence --> Gemini
-    Classifier --> Response
+    Classifier --> Gemini
     JEV --> Classifier
     Gemini --> Classifier
-    Response -- JSON --> API
-    API --> Store
-    Store --> View
 ```
 
 ### Request flow
@@ -50,8 +64,9 @@ flowchart LR
 2. `NewsAPIService` sends the text as JSON to `POST /api/v1/news/classify`.
 3. FastAPI validates the request with `NewsRequest` and delegates to `ClassifierService`.
 4. `JevService` classifies the text into one of `technology`, `business`, `sports`, `politics`, `entertainment`, `science`, `health`, or `other`, and evaluates specificity.
-5. `ClassifierService` applies the confidence policy: high-confidence results use JEV only; medium/low-confidence or non-specific results call `GeminiService` for a summary and may require human review.
-6. The response is decoded into `NewsResponse` and rendered by the SwiftUI result card.
+5. `ClassifierService` applies the confidence policy: high-confidence specific results use JEV only; medium/low-confidence or non-specific results call `GeminiService`.
+6. `GeminiService` returns a concise summary on success. If Gemini is unavailable, it returns a fallback message and the result requires human review.
+7. The response is decoded into `NewsResponse` and rendered by the SwiftUI result card.
 
 ## Repository layout
 
@@ -187,6 +202,7 @@ Response shape:
 - **Medium confidence (`>= 0.60` and `< 0.90`):** JEV classification plus Gemini summary.
 - **Low confidence (`< 0.60`):** JEV classification plus Gemini summary and human review.
 - **Non-specific input:** Gemini summary and human review, regardless of category confidence.
+- **Gemini server/API failure:** A fallback summary is returned and the result requires human review.
 
 ## Testing
 
