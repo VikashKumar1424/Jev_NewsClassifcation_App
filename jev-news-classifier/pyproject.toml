@@ -1,0 +1,22 @@
+[project]
+name = "jev-news-classifier"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Vikash Kumar Gupta", email = "vkgupta83@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "google-genai>=2.24.0",
+    "typesafe-sdk>=0.7.1",
+    "uvicorn[standard]>=0.53.0",
+]
+
+[project.scripts]
+jev-news-classifier = "jev_news_classifier:main"
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"
