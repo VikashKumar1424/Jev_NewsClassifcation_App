@@ -3,7 +3,7 @@
 A SwiftUI iOS app backed by a Python FastAPI service for classifying news. The backend uses JEV to determine a news category and specificity, then routes lower-confidence or ambiguous inputs to Google Gemini for summarization and contextual enrichment.
 
  ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/a926f0bf1e21ab9f7ac5e97d4483442da22bb62a/iOS.jpeg)
-
+ ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/089cab8ec859e3c719ff99bcc82dcbc2ae130e71/iOS2.jpg)
 
 ## Architecture
 
