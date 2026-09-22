@@ -1,10 +1,10 @@
 # JEV News Classifier
 
-A SwiftUI iOS app backed by a Python FastAPI service for classifying news. The backend uses JEV to determine a news category and specificity, then routes lower-confidence or ambiguous inputs to Google Gemini for a concise summary and human-review signal.
+A SwiftUI iOS app backed by a Python FastAPI service for classifying news. The backend uses JEV to determine a news category and specificity, then routes lower-confidence or ambiguous inputs to Google Gemini for summarization and contextual enrichment.
 
 ## Architecture
 
-The classification pipeline uses JEV as the first-stage classifier. It evaluates both the news category and whether the input is specific enough to classify. Medium- or low-confidence and non-specific inputs are enriched with a Gemini summary.
+The classification pipeline uses JEV as the first-stage classifier. It evaluates both the news category and whether the input is specific enough to classify. Medium- or low-confidence and non-specific inputs are then escalated to Gemini for summary generation before the final response is returned to the app.
 
 ```mermaid
 flowchart TD
@@ -33,9 +33,9 @@ flowchart TD
 | Component | Responsibility |
 | --- | --- |
 | `NewsJevApp.swift` | SwiftUI application entry point. Creates the app window and presents `ContentView`. |
-| `ContentView.swift` | Presentation layer. Collects headline/article text, enables the classify action, displays loading and error states, and renders category, confidence, probabilities, summary, processing path, and human-review information. |
+| `ContentView.swift` | Presentation layer. Collects headline/article text, enables the classify action, displays loading and error states, and renders category, confidence, probabilities, summary, and review flags. |
 | `NewsStore.swift` | Main-actor observable state layer. Coordinates classification and exposes the `idle`, `loading`, `loaded`, and `error` states to the view. |
-| `NewsAPIService.swift` | Networking layer. Builds the `POST /api/v1/news/classify` request, encodes the request body, validates HTTP responses, maps API failures to `APIError`, and decodes the response. |
+| `NewsAPIService.swift` | Networking layer. Builds the `POST /api/v1/news/classify` request, encodes the request body, validates HTTP responses, maps API failures to `APIError`, and decodes the backend result. |
 | `NewsModel.swift` | API contract layer. Defines the Codable `NewsRequest` and `NewsResponse` models and maps snake_case backend fields such as `needs_human_review` to Swift properties. |
 
 ### Backend component responsibilities
@@ -45,7 +45,7 @@ flowchart TD
 | `app/main.py` | Application bootstrap. Creates the FastAPI app, registers the news router, and exposes the root and `/health` endpoints. |
 | `app/api/routes/news.py` | HTTP/API layer. Defines the `/api/v1/news` router, accepts `NewsRequest`, invokes `ClassifierService`, and returns a validated `NewsResponse`. |
 | `app/models/news.py` | Validation and schema layer. Enforces the five-character minimum for incoming text and defines the response fields returned to the iOS client. |
-| `app/services/classifier_service.py` | Orchestration and policy layer. Calls JEV first, evaluates specificity and confidence thresholds, decides whether Gemini is needed, and assembles the final result. |
+| `app/services/classifier_service.py` | Orchestration and policy layer. Calls JEV first, evaluates specificity and confidence thresholds, decides whether Gemini is needed, and assembles the final response. |
 | `app/services/jev_service.py` | JEV integration layer. Creates the TypeSafe client, defines the supported categories and specificity criteria, and returns category/specificity confidence and probabilities. |
 | `app/services/gemini_service.py` | Gemini integration layer. Generates a concise summary for ambiguous or lower-confidence input and returns safe fallback messages when Gemini fails. |
 
@@ -109,7 +109,25 @@ TYPESAFE_API_KEY=your_typesafe_api_key
 GOOGLE_API_KEY=your_google_api_key
 ```
 
-Do not commit `.env` or API keys.
+### Environment variables and TypeSafe client example
+
+```python
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+TYPESAFE_API_KEY = os.getenv("TYPESAFE_API_KEY")
+
+client = TypeSafeClient(
+    api_key=TYPESAFE_API_KEY,
+    model="jev-1.13.0",
+)
+```
+
+If your service stores the API key in `self.api_key`, use that value instead of the raw environment variable when building the client. Do not commit `.env` or API keys.
 
 ### Install and run
 
@@ -145,7 +163,7 @@ The response includes `category`, `confidence`, `probabilities`, `summary`, `nee
 4. Build and run the app.
 5. Enter a headline or article and tap **Classify News**.
 
-The development API URL is configured in `NewsJev_ios/NewsJev/APIServices/NewsAPIService.swift` as `http://127.0.0.1:8000`. This works for an iOS Simulator running on the same Mac. For a physical device, use the Mac's LAN IP address and ensure the device can reach the backend.
+The development API URL is configured in `NewsJev_ios/NewsJev/APIServices/NewsAPIService.swift` as `http://127.0.0.1:8000`. This works for an iOS Simulator running on the same Mac. For a physical device, replace it with your machine's local IP address.
 
 ## API reference
 
