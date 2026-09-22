@@ -2,6 +2,8 @@
 
 A SwiftUI iOS app backed by a Python FastAPI service for classifying news. The backend uses JEV to determine a news category and specificity, then routes lower-confidence or ambiguous inputs to Google Gemini for summarization and contextual enrichment.
 
+https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/main/iOS.jpeg?raw=true
+
 ## Architecture
 
 The classification pipeline uses JEV as the first-stage classifier. It evaluates both the news category and whether the input is specific enough to classify. Medium- or low-confidence and non-specific inputs are then escalated to Gemini for summary generation before the final response is returned to the app.
