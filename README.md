@@ -28,53 +28,6 @@ flowchart TD
 
 ### Component view
 
-```mermaid
-flowchart LR
-    subgraph Client[NewsJev iOS client]
-        direction TB
-        App[NewsJevApp.swift\nSwiftUI app entry point]
-        UI[ContentView.swift\nInput, loading, result and error views]
-        State[NewsStore.swift\n@Observable @MainActor state]
-        SwiftModels[NewsModel.swift\nNewsRequest / NewsResponse Codable]
-        HTTP[NewsAPIService.swift\nURLSession HTTP client]
-        App --> UI
-        UI --> State
-        State --> HTTP
-        HTTP -. encodes/decodes .-> SwiftModels
-    end
-
-    subgraph Boundary[HTTP and JSON boundary]
-        Request[POST /api/v1/news/classify\n{ text: String }]
-        Response[NewsResponse JSON\ncategory, confidence, summary, review]
-    end
-
-    subgraph Server[Python FastAPI backend]
-        direction TB
-        Bootstrap[app/main.py\nFastAPI app + / + /health]
-        Routes[app/api/routes/news.py\nAPIRouter + classify endpoint]
-        Schemas[app/models/news.py\nNewsRequest / NewsResponse Pydantic]
-        Orchestrator[app/services/classifier_service.py\nconfidence-based orchestration]
-        Bootstrap --> Routes
-        Routes --> Schemas
-        Routes --> Orchestrator
-    end
-
-    subgraph Providers[External AI providers]
-        JEV[app/services/jev_service.py\nTypeSafeClient\njev-1.13.0]
-        Gemini[app/services/gemini_service.py\nGoogle GenAI client\ngemini-3.6-flash]
-    end
-
-    HTTP --> Request
-    Request --> Routes
-    Schemas --> Orchestrator
-    Orchestrator --> JEV
-    Orchestrator --> Gemini
-    JEV --> Orchestrator
-    Gemini --> Orchestrator
-    Orchestrator --> Response
-    Response --> HTTP
-```
-
 ### Frontend component responsibilities
 
 | Component | Responsibility |
