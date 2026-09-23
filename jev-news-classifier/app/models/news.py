@@ -26,4 +26,4 @@ class NewsResponse(BaseModel):
 
     specificity: str
 
-    specificity_confidence: float
+    specificity_score: float

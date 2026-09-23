@@ -20,33 +20,71 @@ final class NewsStore {
     }
 
     var state: State = .idle
-
     var response: NewsResponse?
     var errorMessage: String?
 
     private let apiService = NewsAPIService()
 
+    private var classificationTask: Task<Void, Never>?
+
+    // MARK: - Classify
+
     func classify(text: String) async {
+
+        // Cancel previous request if any
+        classificationTask?.cancel()
 
         state = .loading
         response = nil
         errorMessage = nil
 
-        do {
+        classificationTask = Task {
 
-            let result = try await apiService.classify(
-                text: text
-            )
+            do {
 
-            response = result
-            state = .loaded
+                let result = try await apiService.classify(
+                    text: text
+                )
 
-        } catch {
+                // Check if user cancelled
+                try Task.checkCancellation()
 
-            errorMessage = error.localizedDescription
-            state = .error(
-                error.localizedDescription
-            )
+                response = result
+                state = .loaded
+
+            } catch is CancellationError {
+
+                state = .idle
+                response = nil
+
+            } catch {
+
+                // Don't show an error if task was cancelled
+                if Task.isCancelled {
+                    state = .idle
+                    return
+                }
+
+                errorMessage = error.localizedDescription
+                state = .error(
+                    error.localizedDescription
+                )
+            }
         }
+
+        await classificationTask?.value
+        classificationTask = nil
+    }
+
+    // MARK: - Cancel
+
+    func cancelClassification() {
+
+        classificationTask?.cancel()
+        classificationTask = nil
+
+        state = .idle
+        response = nil
+        errorMessage = nil
     }
 }

@@ -142,7 +142,101 @@ private extension ContentView {
 }
 
 // MARK: - Classify Button
+// MARK: - Classify + Cancel Buttons
 
+private extension ContentView {
+
+    var classifyButton: some View {
+
+        HStack(spacing: 12) {
+
+            // MARK: Cancel
+
+            Button {
+
+                store.cancelClassification()
+
+            } label: {
+
+                HStack(spacing: 6) {
+
+                    Image(
+                        systemName: "xmark"
+                    )
+
+                    Text("Cancel")
+                }
+                .font(.headline)
+                .foregroundStyle(
+                    isLoading ? .red : .secondary
+                )
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(
+                    isLoading
+                    ? Color.red.opacity(0.10)
+                    : Color.gray.opacity(0.08)
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 16
+                    )
+                )
+            }
+            .disabled(!isLoading)
+
+            // MARK: Classify
+
+            Button {
+
+                Task {
+                    await store.classify(
+                        text: newsText
+                    )
+                }
+
+            } label: {
+
+                HStack {
+
+                    if isLoading {
+
+                        ProgressView()
+                            .tint(.white)
+
+                        Text("Classifying...")
+
+                    } else {
+
+                        Image(
+                            systemName: "sparkles"
+                        )
+
+                        Text("Classify News")
+                    }
+                }
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(
+                    canClassify && !isLoading
+                    ? Color.blue
+                    : Color.gray
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 16
+                    )
+                )
+            }
+            .disabled(
+                !canClassify || isLoading
+            )
+        }
+    }
+}
+/*
 private extension ContentView {
 
     var classifyButton: some View {
@@ -195,7 +289,7 @@ private extension ContentView {
             !canClassify || isLoading
         )
     }
-}
+} */
 
 // MARK: - Button State
 

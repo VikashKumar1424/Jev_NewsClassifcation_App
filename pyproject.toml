@@ -1,0 +1,17 @@
+[project]
+name = "jev-newsclassifcation-app"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Vikash Kumar Gupta", email = "vkgupta83@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+jev-newsclassifcation-app = "jev_newsclassifcation_app:main"
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"

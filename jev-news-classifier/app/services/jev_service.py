@@ -1,7 +1,11 @@
 import os
 
 from dotenv import load_dotenv
-from typesafe_sdk import Choice, TypeSafeClient
+from typesafe_sdk import (
+    AsyncTypeSafeClient,
+    Choice,
+    Noul,
+)
 
 load_dotenv(".env", override=True)
 
@@ -18,15 +22,24 @@ class JevService:
             )
 
         self.api_key = api_key
-        self.model = "jev-1.13.0"
 
-    async def classify(self, text: str) -> dict:
+        # Current TypeSafe default/recommended model
+        self.model = "jev-latest"
+
+    async def classify(
+        self,
+        text: str
+    ) -> dict:
 
         state = {
             "news": text
         }
 
         questions = {
+
+            # -----------------------------------------
+            # 1. News category
+            # -----------------------------------------
 
             "category": Choice(
                 instructions=(
@@ -36,7 +49,9 @@ class JevService:
                     "outside the listed categories. "
                     "Do not use other merely because the news is vague."
                 ),
+
                 criteria={
+
                     "technology": (
                         "Technology, software, AI, computers, devices, "
                         "internet, cybersecurity, digital products "
@@ -82,53 +97,80 @@ class JevService:
                 },
             ),
 
-            "specificity": Choice(
-                instructions=(
-                    "Determine whether the news contains enough "
-                    "concrete information to understand what actually "
-                    "happened. Vague, generic, incomplete, hypothetical "
-                    "or non-specific statements are not_specific."
-                ),
-                criteria={
-                    "specific": (
-                        "The text identifies a concrete event, subject, "
-                        "organization, person, product, discovery, "
-                        "decision or situation with enough information "
-                        "to understand the news."
-                    ),
+            # -----------------------------------------
+            # 2. Specificity
+            # -----------------------------------------
 
-                    "not_specific": (
-                        "The text is vague, generic, incomplete, "
-                        "ambiguous, hypothetical, or does not provide "
-                        "enough concrete details."
-                    ),
-                },
+            "specificity": Noul(
+                instructions=(
+                    "Does this news contain enough concrete information "
+                    "to understand what actually happened? "
+                    "Return a high value when the news describes a "
+                    "concrete event, subject, organization, person, "
+                    "product, discovery, decision or situation. "
+                    "Return a low value when the text is vague, generic, "
+                    "incomplete, hypothetical, ambiguous, or does not "
+                    "provide enough concrete details."
+                ),
             ),
         }
 
-        client = TypeSafeClient(
+        # -----------------------------------------
+        # Async TypeSafe client
+        # -----------------------------------------
+
+        async with AsyncTypeSafeClient(
             api_key=self.api_key,
             model=self.model,
+        ) as client:
+
+            response = await client.system_one(
+                state,
+                questions,
+            )
+
+        # -----------------------------------------
+        # Category result
+        # -----------------------------------------
+
+        category_answer = (
+            response.choices["category"]
         )
 
-        response = client.system_one(
-            state=state,
-            questions=questions,
+        # -----------------------------------------
+        # Specificity result
+        # -----------------------------------------
+
+        specificity_answer = (
+            response.nouls["specificity"]
         )
 
-        category_answer = response.choices["category"]
-        specificity_answer = response.choices["specificity"]
+        specificity_score = (
+            specificity_answer.noul
+        )
+
+        # Convert Noul score into application-level label
+        if specificity_score >= 0.5:
+
+            specificity = "specific"
+
+        else:
+
+            specificity = "not_specific"
 
         return {
-            "category": category_answer.choice,
-            "confidence": category_answer.confidence,
-            "probabilities": category_answer.probabilities,
 
-            "specificity": specificity_answer.choice,
-            "specificity_confidence": (
-                specificity_answer.confidence
+            "category": category_answer.choice,
+
+            "confidence": (
+                category_answer.confidence
             ),
-            "specificity_probabilities": (
-                specificity_answer.probabilities
+
+            "probabilities": (
+                category_answer.probabilities
             ),
+
+            "specificity": specificity,
+
+            "specificity_score": specificity_score,
         }

@@ -7,6 +7,8 @@ class ClassifierService:
     HIGH_CONFIDENCE = 0.90
     MEDIUM_CONFIDENCE = 0.60
 
+    SPECIFICITY_THRESHOLD = 0.50
+
     def __init__(self):
 
         self.jev = JevService()
@@ -17,72 +19,69 @@ class ClassifierService:
         text: str
     ) -> dict:
 
-        # =========================================
-        # STEP 1: JEV
-        # =========================================
+        # -----------------------------------------
+        # Step 1: JEV classification
+        # -----------------------------------------
 
         decision = await self.jev.classify(text)
 
         category = decision["category"]
+
         confidence = decision["confidence"]
+
         probabilities = decision["probabilities"]
 
         specificity = decision["specificity"]
 
-        specificity_confidence = (
-            decision["specificity_confidence"]
+        specificity_score = (
+            decision["specificity_score"]
         )
 
-        # =========================================
-        # STEP 2: CHECK SPECIFICITY
-        # =========================================
+        # -----------------------------------------
+        # Step 2: Check specificity
+        # -----------------------------------------
 
         is_specific = (
-            specificity == "specific"
+            specificity_score
+            >= self.SPECIFICITY_THRESHOLD
         )
 
-        # =========================================
-        # STEP 3: VAGUE / AMBIGUOUS NEWS
-        # =========================================
+        # -----------------------------------------
+        # Step 3: Not specific
+        # -----------------------------------------
 
         if not is_specific:
 
-            summary = await self.gemini.summarize(text)
+            summary = await self.gemini.summarize(
+                text
+            )
 
             return {
-        "category": category,
 
-        "confidence": min(
-            confidence,
-            specificity_confidence
-        ),
+                "category": category,
 
-        "probabilities": probabilities,
+                "confidence": confidence,
 
-        "summary": summary,
+                "probabilities": probabilities,
 
-        "needs_human_review": True,
+                "summary": summary,
 
-        "processing_path": (
-            "jev_ambiguity_check_then_gemini"
-        ),
+                "needs_human_review": True,
 
-        "specificity": specificity,
-
-        "specificity_confidence": (
-            specificity_confidence
-        ),
+                "processing_path": (
+                    "jev_specificity_check_then_gemini"
+                ),
 
                 "specificity": specificity,
 
-                "specificity_confidence": (
-                    specificity_confidence
+                "specificity_score": (
+                    specificity_score
                 ),
             }
 
-        # =========================================
-        # STEP 4: HIGH CONFIDENCE
-        # =========================================
+        # -----------------------------------------
+        # Step 4: High confidence
+        # -----------------------------------------
 
         if confidence >= self.HIGH_CONFIDENCE:
 
@@ -94,13 +93,15 @@ class ClassifierService:
 
             needs_human_review = False
 
-        # =========================================
-        # STEP 5: MEDIUM CONFIDENCE
-        # =========================================
+        # -----------------------------------------
+        # Step 5: Medium confidence
+        # -----------------------------------------
 
         elif confidence >= self.MEDIUM_CONFIDENCE:
 
-            summary = await self.gemini.summarize(text)
+            summary = await self.gemini.summarize(
+                text
+            )
 
             processing_path = (
                 "jev_then_gemini"
@@ -108,13 +109,15 @@ class ClassifierService:
 
             needs_human_review = False
 
-        # =========================================
-        # STEP 6: LOW CONFIDENCE
-        # =========================================
+        # -----------------------------------------
+        # Step 6: Low confidence
+        # -----------------------------------------
 
         else:
 
-            summary = await self.gemini.summarize(text)
+            summary = await self.gemini.summarize(
+                text
+            )
 
             processing_path = (
                 "jev_then_gemini"
@@ -122,9 +125,9 @@ class ClassifierService:
 
             needs_human_review = True
 
-        # =========================================
-        # FINAL RESPONSE
-        # =========================================
+        # -----------------------------------------
+        # Final response
+        # -----------------------------------------
 
         return {
 
@@ -144,7 +147,7 @@ class ClassifierService:
 
             "specificity": specificity,
 
-            "specificity_confidence": (
-                specificity_confidence
+            "specificity_score": (
+                specificity_score
             ),
         }

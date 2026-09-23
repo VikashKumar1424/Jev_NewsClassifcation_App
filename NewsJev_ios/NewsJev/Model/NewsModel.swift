@@ -8,14 +8,26 @@
 import Foundation
 import SwiftUI
 
+struct ConfidenceLevel {
+
+    let title: String
+    let icon: String
+    let color: Color
+}
+
+
 struct NewsRequest: Codable {
+
     let text: String
 }
+
 
 struct NewsResponse: Codable {
 
     let category: String
+
     let confidence: Double
+
     let probabilities: [String: Double]
 
     let summary: String
@@ -26,13 +38,17 @@ struct NewsResponse: Codable {
 
     let specificity: String
 
-    let specificityConfidence: Double
+    let specificityScore: Double
+
 
     enum CodingKeys: String, CodingKey {
 
         case category
+
         case confidence
+
         case probabilities
+
         case summary
 
         case needsHumanReview =
@@ -43,14 +59,7 @@ struct NewsResponse: Codable {
 
         case specificity
 
-        case specificityConfidence =
-            "specificity_confidence"
+        case specificityScore =
+            "specificity_score"
     }
-}
-
-struct ConfidenceLevel {
-
-    let title: String
-    let icon: String
-    let color: Color
 }
