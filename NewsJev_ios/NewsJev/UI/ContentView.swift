@@ -141,6 +141,184 @@ private extension ContentView {
     }
 }
 
+// MARK: - Top 2 Classification
+
+private extension ContentView {
+
+    func topTwoView(
+        _ response: NewsResponse
+    ) -> some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 14
+        ) {
+
+            Text("Top Classification")
+                .font(.headline)
+
+            HStack(
+                spacing: 12
+            ) {
+
+                classificationProbabilityCard(
+                    title: "Top 1",
+                    category: response.topCategory,
+                    confidence: response.topConfidence,
+                    icon: "1.circle.fill"
+                )
+
+                classificationProbabilityCard(
+                    title: "Top 2",
+                    category: response.secondCategory,
+                    confidence: response.secondConfidence,
+                    icon: "2.circle.fill"
+                )
+            }
+
+            VStack(
+                alignment: .leading,
+                spacing: 8
+            ) {
+
+                HStack {
+
+                    Text("Confidence Margin")
+
+                    Spacer()
+
+                    Text(
+                        "\(response.confidenceMargin * 100, specifier: "%.1f")%"
+                    )
+                    .fontWeight(.bold)
+                }
+
+                ProgressView(
+                    value: response.confidenceMargin,
+                    total: 1.0
+                )
+                .tint(
+                    marginColor(
+                        response.confidenceMargin
+                    )
+                )
+
+                Text(
+                    marginDescription(
+                        response.confidenceMargin
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(
+                    .secondary
+                )
+            }
+            .padding()
+            .background(
+                RoundedRectangle(
+                    cornerRadius: 16
+                )
+                .fill(
+                    Color(.secondarySystemBackground)
+                )
+            )
+        }
+    }
+
+    func classificationProbabilityCard(
+        title: String,
+        category: String,
+        confidence: Double,
+        icon: String
+    ) -> some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 8
+        ) {
+
+            HStack {
+
+                Image(
+                    systemName: icon
+                )
+                .foregroundStyle(
+                    .blue
+                )
+
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(
+                        .secondary
+                    )
+            }
+
+            Text(
+                category.capitalized
+            )
+            .font(.headline)
+
+            Text(
+                "\(confidence * 100, specifier: "%.1f")%"
+            )
+            .font(.title3)
+            .fontWeight(.bold)
+
+            ProgressView(
+                value: confidence,
+                total: 1.0
+            )
+            .tint(.blue)
+        }
+        .frame(
+            maxWidth: .infinity,
+            alignment: .leading
+        )
+        .padding()
+        .background(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
+            .fill(
+                Color.blue.opacity(0.06)
+            )
+        )
+    }
+
+    func marginColor(
+        _ margin: Double
+    ) -> Color {
+
+        if margin >= 0.30 {
+            return .green
+        }
+
+        if margin >= 0.15 {
+            return .orange
+        }
+
+        return .red
+    }
+
+    func marginDescription(
+        _ margin: Double
+    ) -> String {
+
+        if margin >= 0.30 {
+
+            return "Strong separation between Top 1 and Top 2."
+
+        } else if margin >= 0.15 {
+
+            return "Moderate separation between Top 1 and Top 2."
+
+        } else {
+
+            return "Top 1 and Top 2 are close. Classification may be ambiguous."
+        }
+    }
+}
+
 // MARK: - Classify Button
 // MARK: - Classify + Cancel Buttons
 
@@ -453,17 +631,15 @@ private extension ContentView {
                 HStack {
 
                     Image(
-                        systemName:
-                            categoryIcon(
-                                response.category
-                            )
+                        systemName: categoryIcon(
+                            response.category
+                        )
                     )
                     .font(.title2)
                     .foregroundStyle(.blue)
 
                     Text(
-                        response.category
-                            .capitalized
+                        response.category.capitalized
                     )
                     .font(.title)
                     .fontWeight(.bold)
@@ -478,6 +654,18 @@ private extension ContentView {
 
             confidenceView(
                 response.confidence
+            )
+
+            // MARK: Top 1 / Top 2
+
+            topTwoView(
+                response
+            )
+
+            // MARK: Decision Reason
+
+            decisionReasonView(
+                response.decisionReason
             )
 
             // MARK: Processing Path
@@ -756,6 +944,147 @@ private extension ContentView {
                 : Color.blue.opacity(0.06)
             )
         )
+    }
+}
+
+// MARK: - Decision Reason
+
+private extension ContentView {
+
+    func decisionReasonView(
+        _ reason: String
+    ) -> some View {
+
+        HStack(
+            spacing: 12
+        ) {
+
+            Image(
+                systemName: decisionReasonIcon(
+                    reason
+                )
+            )
+            .font(.title3)
+            .foregroundStyle(
+                decisionReasonColor(
+                    reason
+                )
+            )
+
+            VStack(
+                alignment: .leading,
+                spacing: 4
+            ) {
+
+                Text("Decision Reason")
+                    .font(.caption)
+                    .foregroundStyle(
+                        .secondary
+                    )
+
+                Text(
+                    formatDecisionReason(
+                        reason
+                    )
+                )
+                .font(.headline)
+            }
+
+            Spacer()
+        }
+        .padding()
+        .background(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
+            .fill(
+                decisionReasonColor(
+                    reason
+                )
+                .opacity(0.08)
+            )
+        )
+    }
+
+    func formatDecisionReason(
+        _ reason: String
+    ) -> String {
+
+        switch reason {
+
+        case "high_confidence_specific":
+            return "High Confidence + Specific"
+
+        case "ambiguous_top_two":
+            return "Top-2 Categories Are Ambiguous"
+
+        case "medium_confidence":
+            return "Medium Confidence"
+
+        case "low_confidence":
+            return "Low Confidence"
+
+        case "not_specific":
+            return "News Is Not Specific"
+
+        default:
+            return reason.replacingOccurrences(
+                of: "_",
+                with: " "
+            ).capitalized
+        }
+    }
+
+    func decisionReasonIcon(
+        _ reason: String
+    ) -> String {
+
+        switch reason {
+
+        case "high_confidence_specific":
+            return "checkmark.circle.fill"
+
+        case "ambiguous_top_two":
+            return "arrow.left.arrow.right.circle.fill"
+
+        case "medium_confidence":
+            return "minus.circle.fill"
+
+        case "low_confidence":
+            return "exclamationmark.circle.fill"
+
+        case "not_specific":
+            return "questionmark.circle.fill"
+
+        default:
+            return "info.circle.fill"
+        }
+    }
+
+    func decisionReasonColor(
+        _ reason: String
+    ) -> Color {
+
+        switch reason {
+
+        case "high_confidence_specific":
+            return .green
+
+        case "ambiguous_top_two":
+            return .orange
+
+        case "medium_confidence":
+            return .orange
+
+        case "low_confidence":
+            return .red
+
+        case "not_specific":
+            return .orange
+
+        default:
+            return .blue
+        }
     }
 }
 

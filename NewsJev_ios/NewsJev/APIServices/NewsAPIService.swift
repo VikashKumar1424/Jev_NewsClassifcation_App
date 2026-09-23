@@ -71,6 +71,7 @@ struct NewsAPIService {
         }
 
         do {
+            print(String(bytes: data, encoding: .utf8))
 
             return try JSONDecoder().decode(
                 NewsResponse.self,
