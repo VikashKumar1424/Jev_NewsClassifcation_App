@@ -10,7 +10,7 @@ import Observation
 
 @MainActor
 @Observable
-final class NewsStore {
+final class NewsState {
 
     enum State {
            case idle

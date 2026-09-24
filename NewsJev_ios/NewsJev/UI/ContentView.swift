@@ -9,7 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
 
-    @State private var store = NewsStore()
+    @State private var state = NewsState()
 
     @State private var newsText = ""
 
@@ -34,21 +34,21 @@ struct ContentView: View {
 
                     // MARK: - Normal JEV Classification
 
-                    if let response = store.response {
+                    if let response = state.response {
 
                         resultCard(response)
                     }
 
                     // MARK: - JEV vs Gemini Comparison
 
-                    if let comparison = store.comparisonResponse {
+                    if let comparison = state.comparisonResponse {
 
                         comparisonSection(comparison)
                     }
 
                     // MARK: - Error
 
-                    if case .error(let message) = store.state {
+                    if case .error(let message) = state.state {
 
                         errorCard(message)
                     }
@@ -136,8 +136,8 @@ private extension ContentView {
                     Button("Clear") {
 
                         newsText = ""
-                        store.response = nil
-                        store.comparisonResponse = nil
+                        state.response = nil
+                        state.comparisonResponse = nil
                     }
                     .font(.caption)
                 }
@@ -158,7 +158,7 @@ private extension ContentView {
 
             Task {
 
-                await store.classify(
+                await state.classify(
                     text: newsText
                 )
             }
@@ -209,7 +209,7 @@ private extension ContentView {
 
             Task {
 
-                await store.compare(
+                await state.compare(
                     text: newsText
                 )
             }
@@ -218,7 +218,7 @@ private extension ContentView {
 
             HStack(spacing: 10) {
 
-                if store.isComparing {
+                if state.isComparing {
 
                     ProgressView()
                         .tint(.white)
@@ -236,7 +236,7 @@ private extension ContentView {
             .frame(maxWidth: .infinity)
             .padding()
             .background(
-                canClassify && !store.isComparing
+                canClassify && !state.isComparing
                 ? Color.purple
                 : Color.gray
             )
@@ -245,7 +245,7 @@ private extension ContentView {
             )
         }
         .disabled(
-            !canClassify || store.isComparing
+            !canClassify || state.isComparing
         )
     }
 }
@@ -265,7 +265,7 @@ private extension ContentView {
 
     var isLoading: Bool {
 
-        if case .loading = store.state {
+        if case .loading = state.state {
 
             return true
         }
