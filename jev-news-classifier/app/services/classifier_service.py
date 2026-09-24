@@ -77,24 +77,50 @@ class ClassifierService:
         # -----------------------------------------
         if route.route == ProcessingRoute.JEV_THEN_GEMINI:
 
-            gemini_result = await self.gemini.classify(text)
+            try:
+                gemini_result = await self.gemini.classify(text)
 
-            gemini_category = gemini_result["category"]
-            gemini_confidence = float(
-                gemini_result["confidence"]
-            )
+                gemini_category = gemini_result["category"]
+                gemini_confidence = float(
+                    gemini_result["confidence"]
+                )
 
-            processing_path = "jev_then_gemini"
+                processing_path = "jev_then_gemini"
 
-            summary = (
-                f"JEV classified this as {top_category} "
-                f"({top_confidence:.2%}). "
-                f"Gemini classified it as {gemini_category} "
-                f"({gemini_confidence:.2%})."
-            )
+                summary = (
+                    f"JEV classified this as {top_category} "
+                    f"({top_confidence:.2%}). "
+                    f"Gemini classified it as "
+                    f"{gemini_category} "
+                    f"({gemini_confidence:.2%})."
+                )
 
-            # If JEV and Gemini disagree, require review.
-            if top_category != gemini_category:
+                # JEV and Gemini disagree
+                if top_category != gemini_category:
+                    needs_human_review = True
+
+            except RuntimeError as exc:
+
+                print()
+                print("========== GEMINI FALLBACK ==========")
+                print(f"Gemini unavailable: {exc}")
+                print("Using JEV result.")
+                print("======================================")
+                print()
+
+                # Gemini failure should NOT make /classify fail.
+                processing_path = "jev_then_gemini_fallback"
+
+                summary = (
+                    f"JEV classified this as "
+                    f"{top_category} "
+                    f"({top_confidence:.2%}). "
+                    f"Gemini verification was temporarily "
+                    f"unavailable, so the JEV result is returned."
+                )
+
+                # Since Gemini verification was not completed,
+                # flag this result for review.
                 needs_human_review = True
 
         # -----------------------------------------
@@ -161,11 +187,13 @@ class ClassifierService:
         """
         Benchmark endpoint.
 
-        Runs BOTH JEV and Gemini intentionally.
+        Runs JEV and Gemini independently.
+        If Gemini is temporarily unavailable, return
+        a structured comparison response instead of HTTP 500.
         """
 
         # -----------------------------------------
-        # JEV
+        # 1. JEV
         # -----------------------------------------
         jev_start = time.perf_counter()
 
@@ -181,24 +209,131 @@ class ClassifierService:
         )
 
         # -----------------------------------------
-        # Router
+        # 2. Router
         # -----------------------------------------
         route = self.router.decide(jev_result)
 
         # -----------------------------------------
-        # Gemini
+        # 3. Gemini
         # -----------------------------------------
-        gemini_result = await self.gemini.classify(text)
+        gemini_error = None
+        gemini_result = None
+
+        try:
+            gemini_result = await self.gemini.classify(text)
+
+        except RuntimeError as exc:
+            gemini_error = str(exc)
+
+            print()
+            print("========== GEMINI COMPARISON ERROR ==========")
+            print(f"Gemini unavailable: {gemini_error}")
+            print("JEV result is still available.")
+            print("==============================================")
+            print()
 
         # -----------------------------------------
-        # Comparison
+        # 4. JEV values
         # -----------------------------------------
         jev_category = jev_result["category"]
-        gemini_category = gemini_result["category"]
 
         jev_confidence = float(
             jev_result["confidence"]
         )
+
+        # -----------------------------------------
+        # 5. Gemini unavailable
+        # -----------------------------------------
+        if gemini_result is None:
+
+            return {
+                "text": text,
+
+                "jev": {
+                    "category": jev_category,
+                    "confidence": jev_confidence,
+
+                    "probabilities":
+                        jev_result["probabilities"],
+
+                    "specificity":
+                        jev_result["specificity"],
+
+                    "specificity_score":
+                        jev_result["specificity_score"],
+
+                    "questions":
+                        jev_result["questions"],
+
+                    "question_count":
+                        jev_result["question_count"],
+
+                    "execution_mode":
+                        jev_result["execution_mode"],
+
+                    "latency_ms":
+                        jev_result["latency_ms"],
+                },
+
+                "gemini": {
+                    "category": "unavailable",
+                    "confidence": 0.0,
+                    "reason": gemini_error or "Gemini unavailable.",
+                    "latency_ms": 0.0,
+
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "thought_tokens": 0,
+                    "total_tokens": 0,
+
+                    "input_cost_usd": 0.0,
+                    "output_cost_usd": 0.0,
+                    "total_cost_usd": 0.0,
+                },
+
+                "comparison": {
+                    "same_category": False,
+                    "confidence_difference": 0.0,
+                    "category_match": "unavailable",
+
+                    "jev_category":
+                        jev_category,
+
+                    "jev_confidence":
+                        jev_confidence,
+
+                    "gemini_category":
+                        "unavailable",
+
+                    "gemini_confidence":
+                        0.0,
+
+                    "latency_difference_ms":
+                        0.0,
+                },
+
+                "routing": {
+                    "route": route.route.value,
+                    "reason": route.reason,
+
+                    "needs_follow_up":
+                        route.needs_follow_up,
+
+                    "needs_human_review":
+                        True,
+
+                    "question":
+                        route.question,
+
+                    "options":
+                        route.options,
+                },
+            }
+
+        # -----------------------------------------
+        # 6. Gemini available
+        # -----------------------------------------
+        gemini_category = gemini_result["category"]
 
         gemini_confidence = float(
             gemini_result["confidence"]
@@ -209,47 +344,52 @@ class ClassifierService:
         )
 
         confidence_difference = abs(
-            jev_confidence - gemini_confidence
+            jev_confidence -
+            gemini_confidence
         )
 
         latency_difference = abs(
-            jev_result["latency_ms"]
-            - gemini_result["latency_ms"]
+            jev_result["latency_ms"] -
+            gemini_result["latency_ms"]
         )
 
+        # -----------------------------------------
+        # 7. Normal comparison response
+        # -----------------------------------------
         return {
             "text": text,
 
             "jev": {
                 "category": jev_category,
                 "confidence": jev_confidence,
-                "probabilities": jev_result[
-                    "probabilities"
-                ],
-                "specificity": jev_result[
-                    "specificity"
-                ],
-                "specificity_score": jev_result[
-                    "specificity_score"
-                ],
-                "questions": jev_result[
-                    "questions"
-                ],
-                "question_count": jev_result[
-                    "question_count"
-                ],
-                "execution_mode": jev_result[
-                    "execution_mode"
-                ],
-                "latency_ms": jev_result[
-                    "latency_ms"
-                ],
+
+                "probabilities":
+                    jev_result["probabilities"],
+
+                "specificity":
+                    jev_result["specificity"],
+
+                "specificity_score":
+                    jev_result["specificity_score"],
+
+                "questions":
+                    jev_result["questions"],
+
+                "question_count":
+                    jev_result["question_count"],
+
+                "execution_mode":
+                    jev_result["execution_mode"],
+
+                "latency_ms":
+                    jev_result["latency_ms"],
             },
 
             "gemini": gemini_result,
 
             "comparison": {
-                "same_category": same_category,
+                "same_category":
+                    same_category,
 
                 "confidence_difference":
                     confidence_difference,
@@ -260,8 +400,11 @@ class ClassifierService:
                     else "mismatch"
                 ),
 
-                "jev_category": jev_category,
-                "jev_confidence": jev_confidence,
+                "jev_category":
+                    jev_category,
+
+                "jev_confidence":
+                    jev_confidence,
 
                 "gemini_category":
                     gemini_category,
@@ -277,13 +420,22 @@ class ClassifierService:
             },
 
             "routing": {
-                "route": route.route.value,
-                "reason": route.reason,
+                "route":
+                    route.route.value,
+
+                "reason":
+                    route.reason,
+
                 "needs_follow_up":
                     route.needs_follow_up,
+
                 "needs_human_review":
                     route.needs_human_review,
-                "question": route.question,
-                "options": route.options,
+
+                "question":
+                    route.question,
+
+                "options":
+                    route.options,
             },
         }
