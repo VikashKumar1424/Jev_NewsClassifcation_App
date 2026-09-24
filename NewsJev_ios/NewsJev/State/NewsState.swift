@@ -11,7 +11,6 @@ import Observation
 @MainActor
 @Observable
 final class NewsState {
-
     enum State {
            case idle
            case loading
@@ -25,107 +24,168 @@ final class NewsState {
 
        var comparisonResponse: NewsComparisonResponse?
 
-       var errorMessage: String?
-
        var isComparing = false
+
+       var errorMessage: String?
 
        private let apiService = NewsAPIService()
 
        private var classificationTask: Task<Void, Never>?
 
-    
-    func compare(text: String) async {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+       // MARK: - Classify
 
-        guard !trimmedText.isEmpty else {
-            errorMessage = "Please enter some news text."
-            return
-        }
+       func classify(text: String) async {
 
-        isComparing = true
-        comparisonResponse = nil
-        errorMessage = nil
+           let trimmedText = text.trimmingCharacters(
+               in: .whitespacesAndNewlines
+           )
 
-        do {
-            print("🔵 Starting JEV vs Gemini comparison...")
-            print("📝 Text: \(trimmedText)")
+           guard !trimmedText.isEmpty else {
+               errorMessage = "Please enter some news text."
+               return
+           }
 
-            let result = try await apiService.compare(text: trimmedText)
+           classificationTask?.cancel()
 
-            print("✅ Comparison API completed")
-            print("🤖 JEV Category: \(result.jev.category)")
-            print("✨ Gemini Category: \(result.gemini.category)")
-            print("🔄 Same Category: \(result.comparison.sameCategory)")
+           state = .loading
 
-            comparisonResponse = result
+           response = nil
+           errorMessage = nil
 
-        } catch {
-            print("❌ Comparison failed")
-            print("❌ Error: \(error)")
-            print("❌ Description: \(error.localizedDescription)")
+           classificationTask = Task {
 
-            errorMessage = error.localizedDescription
-        }
+               do {
 
-        isComparing = false
-    }    // MARK: - Classify
+                   let result = try await apiService.classify(
+                       text: trimmedText
+                   )
 
-    func classify(text: String) async {
+                   try Task.checkCancellation()
 
-        // Cancel previous request if any
-        classificationTask?.cancel()
+                   response = result
 
-        state = .loading
-        response = nil
-        errorMessage = nil
+                   state = .loaded
 
-        classificationTask = Task {
+               } catch is CancellationError {
 
-            do {
+                   state = .idle
 
-                let result = try await apiService.classify(
-                    text: text
-                )
+                   response = nil
 
-                // Check if user cancelled
-                try Task.checkCancellation()
+               } catch {
 
-                response = result
-                state = .loaded
+                   if Task.isCancelled {
+                       state = .idle
+                       return
+                   }
 
-            } catch is CancellationError {
+                   errorMessage = error.localizedDescription
 
-                state = .idle
-                response = nil
+                   state = .error(
+                       error.localizedDescription
+                   )
+               }
+           }
 
-            } catch {
+           await classificationTask?.value
 
-                // Don't show an error if task was cancelled
-                if Task.isCancelled {
-                    state = .idle
-                    return
-                }
+           classificationTask = nil
+       }
 
-                errorMessage = error.localizedDescription
-                state = .error(
-                    error.localizedDescription
-                )
-            }
-        }
+       // MARK: - Compare
 
-        await classificationTask?.value
-        classificationTask = nil
-    }
+       func compare(text: String) async {
 
-    // MARK: - Cancel
+           let trimmedText = text.trimmingCharacters(
+               in: .whitespacesAndNewlines
+           )
 
-    func cancelClassification() {
+           guard !trimmedText.isEmpty else {
+               errorMessage = "Please enter some news text."
+               return
+           }
 
-        classificationTask?.cancel()
-        classificationTask = nil
+           isComparing = true
 
-        state = .idle
-        response = nil
-        errorMessage = nil
-    }
-}
+           comparisonResponse = nil
+
+           errorMessage = nil
+
+           do {
+
+               print("🔵 Starting JEV vs Gemini comparison...")
+
+               print("📝 Text:", trimmedText)
+
+               let result = try await apiService.compare(
+                   text: trimmedText
+               )
+
+               print("✅ Comparison API completed")
+
+               print(
+                   "🤖 JEV Category:",
+                   result.jev.category
+               )
+
+               print(
+                   "✨ Gemini Category:",
+                   result.gemini.category
+               )
+
+               print(
+                   "🔄 Same Category:",
+                   result.comparison.sameCategory
+               )
+
+               print(
+                   "⚡ JEV Latency:",
+                   result.jev.latencyMs,
+                   "ms"
+               )
+
+               print(
+                   "⚡ Gemini Latency:",
+                   result.gemini.latencyMs,
+                   "ms"
+               )
+
+               print(
+                   "🧭 Route:",
+                   result.routing.route
+               )
+
+               comparisonResponse = result
+
+           } catch {
+
+               print("❌ Comparison failed")
+
+               print("❌ Error:", error)
+
+               print(
+                   "❌ Description:",
+                   error.localizedDescription
+               )
+
+               errorMessage = error.localizedDescription
+           }
+
+           isComparing = false
+       }
+
+       // MARK: - Cancel
+
+       func cancelClassification() {
+
+           classificationTask?.cancel()
+
+           classificationTask = nil
+
+           state = .idle
+
+           response = nil
+
+           errorMessage = nil
+       }
+   }

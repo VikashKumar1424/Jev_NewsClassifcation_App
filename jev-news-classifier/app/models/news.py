@@ -1,6 +1,10 @@
 from pydantic import BaseModel, Field
 
 
+# ============================================================
+# REQUEST
+# ============================================================
+
 class NewsRequest(BaseModel):
     text: str = Field(
         ...,
@@ -8,6 +12,10 @@ class NewsRequest(BaseModel):
         description="News headline or article text",
     )
 
+
+# ============================================================
+# NORMAL CLASSIFICATION RESPONSE
+# ============================================================
 
 class NewsResponse(BaseModel):
     category: str
@@ -34,15 +42,65 @@ class NewsResponse(BaseModel):
     decision_reason: str
 
 
-# ---------------------------------------------------------
-# JEV vs Gemini Comparison
-# ---------------------------------------------------------
+# ============================================================
+# JEV MULTI-QUESTION RESULTS
+# ============================================================
+
+class JEVQuestionResults(BaseModel):
+    category: str
+
+    specificity: float
+
+    is_sports: float
+    is_business: float
+    is_technology: float
+    is_politics: float
+
+
+# ============================================================
+# JEV COMPARISON RESULT
+# ============================================================
+
+class JEVComparisonResult(BaseModel):
+    category: str
+    confidence: float
+
+    probabilities: dict[str, float]
+
+    specificity: str
+    specificity_score: float
+
+    questions: JEVQuestionResults
+
+    question_count: int
+    execution_mode: str
+    latency_ms: float
+
+
+# ============================================================
+# GEMINI
+# ============================================================
 
 class GeminiClassification(BaseModel):
     category: str
     confidence: float
     reason: str
 
+    latency_ms: float
+
+    input_tokens: int
+    output_tokens: int
+    thought_tokens: int
+    total_tokens: int
+
+    input_cost_usd: float
+    output_cost_usd: float
+    total_cost_usd: float
+
+
+# ============================================================
+# JEV vs GEMINI COMPARISON
+# ============================================================
 
 class ComparisonResult(BaseModel):
     same_category: bool
@@ -57,12 +115,36 @@ class ComparisonResult(BaseModel):
     gemini_category: str
     gemini_confidence: float
 
-    gemini_reason: str
+    latency_difference_ms: float
 
+
+# ============================================================
+# ROUTING
+# ============================================================
+
+class RoutingResponse(BaseModel):
+    route: str
+
+    reason: str
+
+    needs_follow_up: bool
+    needs_human_review: bool
+
+    question: str | None
+    options: list[str]
+
+
+# ============================================================
+# COMPLETE COMPARISON RESPONSE
+# ============================================================
 
 class NewsComparisonResponse(BaseModel):
     text: str
 
-    jev: dict
+    jev: JEVComparisonResult
+
     gemini: GeminiClassification
+
     comparison: ComparisonResult
+
+    routing: RoutingResponse

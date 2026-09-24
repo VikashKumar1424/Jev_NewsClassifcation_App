@@ -7,11 +7,30 @@
 
 import SwiftUI
 
+import SwiftUI
+
 struct ContentView: View {
 
-    @State private var state = NewsState()
+    @State private var store = NewsState()
 
     @State private var newsText = ""
+
+    private var canClassify: Bool {
+        !newsText
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            .isEmpty
+    }
+
+    private var isLoading: Bool {
+
+        if case .loading = store.state {
+            return true
+        }
+
+        return false
+    }
 
     var body: some View {
 
@@ -21,51 +40,41 @@ struct ContentView: View {
 
                 VStack(spacing: 20) {
 
-                    headerSection
+                    headerView
 
-                    inputSection
+                    inputCard
 
-                    VStack(spacing: 12) {
+                    actionButtons
 
-                        classifyButton
-
-                        compareButton
+                    if let errorMessage = store.errorMessage {
+                        errorCard(errorMessage)
                     }
 
-                    // MARK: - Normal JEV Classification
-
-                    if let response = state.response {
-
+                    if let response = store.response {
                         resultCard(response)
                     }
 
-                    // MARK: - JEV vs Gemini Comparison
-
-                    if let comparison = state.comparisonResponse {
-
-                        comparisonSection(comparison)
+                    if let comparison = store.comparisonResponse {
+                        comparisonDashboard(
+                            result: comparison
+                        )
                     }
 
-                    // MARK: - Error
-
-                    if case .error(let message) = state.state {
-
-                        errorCard(message)
-                    }
+                    Spacer(minLength: 30)
                 }
                 .padding()
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationBarHidden(true)
+            .navigationTitle("JEV News AI")
+            .navigationBarTitleDisplayMode(.large)
         }
     }
 }
 
 // MARK: - Header
 
-private extension ContentView {
+extension ContentView {
 
-    var headerSection: some View {
+    private var headerView: some View {
 
         VStack(spacing: 8) {
 
@@ -73,892 +82,340 @@ private extension ContentView {
                 .font(.system(size: 42))
                 .foregroundStyle(.blue)
 
-            Text("JEV News Classifier")
-                .font(.largeTitle)
+            Text("News Classification")
+                .font(.title)
                 .fontWeight(.bold)
 
-            Text("JEV + Gemini AI Classification")
-                .font(.subheadline)
+            Text("JEV + Gemini")
+                .font(.headline)
                 .foregroundStyle(.secondary)
+
+            Text(
+                "Classify, compare, measure and route news intelligently."
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
     }
 }
 
 // MARK: - Input
 
-private extension ContentView {
+extension ContentView {
 
-    var inputSection: some View {
+    private var inputCard: some View {
 
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
 
-            Text("News Article")
-                .font(.headline)
-
-            ZStack(alignment: .topLeading) {
-
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(.systemBackground))
-
-                if newsText.isEmpty {
-
-                    Text("Enter news headline or article...")
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 18)
-                }
-
-                TextEditor(text: $newsText)
-                    .scrollContentBackground(.hidden)
-                    .padding(12)
-                    .frame(minHeight: 150)
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(
-                        Color.gray.opacity(0.2),
-                        lineWidth: 1
-                    )
+            Label(
+                "News Text",
+                systemImage: "doc.text"
             )
+            .font(.headline)
 
-            HStack {
+            TextEditor(text: $newsText)
+                .frame(minHeight: 150)
+                .padding(8)
+                .background(
+                    Color(.secondarySystemBackground)
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 14
+                    )
+                )
+                .overlay {
 
-                Image(systemName: "info.circle")
-
-                Text("\(newsText.count) characters")
-
-                Spacer()
-
-                if !newsText.isEmpty {
-
-                    Button("Clear") {
-
-                        newsText = ""
-                        state.response = nil
-                        state.comparisonResponse = nil
-                    }
-                    .font(.caption)
+                    RoundedRectangle(
+                        cornerRadius: 14
+                    )
+                    .stroke(
+                        Color.gray.opacity(0.2)
+                    )
                 }
-            }
+
+            Text(
+                "\(newsText.count) characters"
+            )
             .font(.caption)
             .foregroundStyle(.secondary)
         }
-    }
-}
-
-// MARK: - Classification Button
-
-private extension ContentView {
-
-    var classifyButton: some View {
-
-        Button {
-
-            Task {
-
-                await state.classify(
-                    text: newsText
-                )
-            }
-
-        } label: {
-
-            HStack(spacing: 10) {
-
-                if isLoading {
-
-                    ProgressView()
-                        .tint(.white)
-
-                    Text("Classifying...")
-                } else {
-
-                    Image(systemName: "sparkles")
-
-                    Text("Classify News")
-                }
-            }
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(
-                canClassify && !isLoading
-                ? Color.blue
-                : Color.gray
-            )
-            .clipShape(
-                RoundedRectangle(cornerRadius: 16)
-            )
-        }
-        .disabled(
-            !canClassify || isLoading
-        )
-    }
-}
-
-// MARK: - Compare Button
-
-private extension ContentView {
-
-    var compareButton: some View {
-
-        Button {
-
-            Task {
-
-                await state.compare(
-                    text: newsText
-                )
-            }
-
-        } label: {
-
-            HStack(spacing: 10) {
-
-                if state.isComparing {
-
-                    ProgressView()
-                        .tint(.white)
-
-                    Text("Comparing...")
-                } else {
-
-                    Image(systemName: "arrow.left.arrow.right")
-
-                    Text("Compare JEV vs Gemini")
-                }
-            }
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(
-                canClassify && !state.isComparing
-                ? Color.purple
-                : Color.gray
-            )
-            .clipShape(
-                RoundedRectangle(cornerRadius: 16)
-            )
-        }
-        .disabled(
-            !canClassify || state.isComparing
-        )
-    }
-}
-
-// MARK: - Button State
-
-private extension ContentView {
-
-    var canClassify: Bool {
-
-        !newsText
-            .trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-            .isEmpty
-    }
-
-    var isLoading: Bool {
-
-        if case .loading = state.state {
-
-            return true
-        }
-
-        return false
-    }
-}
-
-// MARK: - Normal Result Card
-
-private extension ContentView {
-
-    func resultCard(
-        _ response: NewsResponse
-    ) -> some View {
-
-        VStack(alignment: .leading, spacing: 18) {
-
-            // MARK: Category
-
-            VStack(alignment: .leading, spacing: 8) {
-
-                Text("Category")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                HStack {
-
-                    Image(
-                        systemName:
-                            categoryIcon(
-                                response.category
-                            )
-                    )
-                    .font(.title2)
-                    .foregroundStyle(.blue)
-
-                    Text(
-                        response.category.capitalized
-                    )
-                    .font(.title)
-                    .fontWeight(.bold)
-
-                    Spacer()
-                }
-            }
-
-            Divider()
-
-            // MARK: Confidence
-
-            confidenceView(
-                response.confidence
-            )
-
-            // MARK: Top Two
-
-            topTwoView(response)
-
-            // MARK: Decision Reason
-
-            decisionReasonView(
-                response.decisionReason
-            )
-
-            // MARK: Specificity
-
-            specificityView(response)
-
-            // MARK: Processing Path
-
-            processingPathView(response)
-
-            // MARK: Human Review
-
-            if response.needsHumanReview {
-
-                humanReviewView
-            }
-
-            // MARK: Summary
-
-            summaryView(
-                response.summary
-            )
-
-            // MARK: Probabilities
-
-            probabilitiesView(
-                response.probabilities
-            )
-        }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 24)
-                .fill(Color(.systemBackground))
+        .background(.background)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 18
+            )
         )
         .shadow(
             color: .black.opacity(0.08),
-            radius: 10,
-            x: 0,
-            y: 5
+            radius: 8
         )
     }
 }
 
-// MARK: - Confidence
+// MARK: - Buttons
 
-private extension ContentView {
+extension ContentView {
 
-    func confidenceView(
-        _ confidence: Double
-    ) -> some View {
+    private var actionButtons: some View {
 
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 12) {
 
-            HStack {
+            Button {
 
-                Text("Confidence")
-                    .font(.headline)
+                Task {
+                    await store.classify(
+                        text: newsText
+                    )
+                }
 
-                Spacer()
+            } label: {
 
-                Text(
-                    "\(confidence * 100, specifier: "%.1f")%"
+                HStack {
+
+                    if isLoading {
+
+                        ProgressView()
+                            .tint(.white)
+
+                        Text("Classifying...")
+
+                    } else {
+
+                        Image(
+                            systemName:
+                                "sparkles"
+                        )
+
+                        Text("Classify News")
+                    }
+                }
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(
+                    canClassify
+                    ? Color.blue
+                    : Color.gray
                 )
-                .font(.title3)
-                .fontWeight(.bold)
-                .foregroundStyle(
-                    confidenceColor(confidence)
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 16
+                    )
                 )
             }
-
-            ProgressView(
-                value: confidence,
-                total: 1.0
-            )
-            .tint(
-                confidenceColor(confidence)
+            .disabled(
+                !canClassify || isLoading
             )
 
-            Text(
-                confidenceLevel(confidence)
+            Button {
+
+                Task {
+
+                    await store.compare(
+                        text: newsText
+                    )
+                }
+
+            } label: {
+
+                HStack {
+
+                    if store.isComparing {
+
+                        ProgressView()
+                            .tint(.white)
+
+                        Text("Comparing...")
+
+                    } else {
+
+                        Image(
+                            systemName:
+                                "arrow.left.arrow.right"
+                        )
+
+                        Text(
+                            "Compare JEV vs Gemini"
+                        )
+                    }
+                }
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(
+                    canClassify &&
+                    !store.isComparing
+                    ? Color.purple
+                    : Color.gray
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 16
+                    )
+                )
+            }
+            .disabled(
+                !canClassify ||
+                store.isComparing
             )
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
+    }
+}
+
+// MARK: - Error
+
+extension ContentView {
+
+    private func errorCard(
+        _ message: String
+    ) -> some View {
+
+        HStack(alignment: .top, spacing: 12) {
+
+            Image(
+                systemName:
+                    "exclamationmark.triangle.fill"
+            )
+            .foregroundStyle(.red)
+
+            VStack(
+                alignment: .leading,
+                spacing: 4
+            ) {
+
+                Text("Error")
+                    .font(.headline)
+
+                Text(message)
+                    .font(.subheadline)
+            }
+
+            Spacer()
+        }
+        .padding()
+        .background(
+            Color.red.opacity(0.08)
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
+        )
+    }
+}
+
+// MARK: - Normal Result
+
+extension ContentView {
+
+    private func resultCard(
+        _ result: NewsResponse
+    ) -> some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 16
+        ) {
+
+            sectionTitle(
+                "JEV Classification",
+                icon: "checkmark.seal.fill"
+            )
+
+            categoryBadge(
+                result.category
+            )
+
+            confidenceRow(
+                title: "Confidence",
+                value: result.confidence
+            )
+
+            Divider()
+
+            topTwoView(result)
+
+            Divider()
+
+            probabilityView(
+                probabilities:
+                    result.probabilities
+            )
+
+            Divider()
+
+            informationRow(
+                title: "Specificity",
+                value:
+                    "\(result.specificity) (\(percentage(result.specificityScore)))"
+            )
+
+            informationRow(
+                title: "Decision",
+                value:
+                    result.decisionReason
+            )
+
+            informationRow(
+                title: "Processing",
+                value:
+                    result.processingPath
+            )
+
+            informationRow(
+                title: "Human Review",
+                value:
+                    result.needsHumanReview
+                    ? "Required"
+                    : "Not Required"
+            )
+
+            if !result.summary.isEmpty {
+
+                Divider()
+
+                VStack(
+                    alignment: .leading,
+                    spacing: 6
+                ) {
+
+                    Text("Summary")
+                        .font(.headline)
+
+                    Text(result.summary)
+                        .font(.subheadline)
+                        .foregroundStyle(
+                            .secondary
+                        )
+                }
+            }
+        }
+        .padding()
+        .background(.background)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 18
+            )
+        )
+        .shadow(
+            color: .black.opacity(0.08),
+            radius: 8
+        )
     }
 }
 
 // MARK: - Top Two
 
-private extension ContentView {
+extension ContentView {
 
-    func topTwoView(
-        _ response: NewsResponse
-    ) -> some View {
-
-        VStack(alignment: .leading, spacing: 14) {
-
-            Text("Top Classification")
-                .font(.headline)
-
-            HStack(spacing: 12) {
-
-                classificationProbabilityCard(
-                    title: "Top 1",
-                    category: response.topCategory,
-                    confidence: response.topConfidence,
-                    icon: "1.circle.fill"
-                )
-
-                classificationProbabilityCard(
-                    title: "Top 2",
-                    category: response.secondCategory,
-                    confidence: response.secondConfidence,
-                    icon: "2.circle.fill"
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-
-                HStack {
-
-                    Text("Confidence Margin")
-
-                    Spacer()
-
-                    Text(
-                        "\(response.confidenceMargin * 100, specifier: "%.1f")%"
-                    )
-                    .fontWeight(.bold)
-                }
-
-                ProgressView(
-                    value: response.confidenceMargin,
-                    total: 1.0
-                )
-                .tint(
-                    marginColor(
-                        response.confidenceMargin
-                    )
-                )
-
-                Text(
-                    marginDescription(
-                        response.confidenceMargin
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        Color(.secondarySystemBackground)
-                    )
-            )
-        }
-    }
-
-    func classificationProbabilityCard(
-        title: String,
-        category: String,
-        confidence: Double,
-        icon: String
-    ) -> some View {
-
-        VStack(alignment: .leading, spacing: 8) {
-
-            HStack {
-
-                Image(systemName: icon)
-                    .foregroundStyle(.blue)
-
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text(
-                category.capitalized
-            )
-            .font(.headline)
-
-            Text(
-                "\(confidence * 100, specifier: "%.1f")%"
-            )
-            .font(.title3)
-            .fontWeight(.bold)
-
-            ProgressView(
-                value: confidence,
-                total: 1.0
-            )
-            .tint(.blue)
-        }
-        .frame(
-            maxWidth: .infinity,
-            alignment: .leading
-        )
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    Color.blue.opacity(0.06)
-                )
-        )
-    }
-
-    func marginColor(
-        _ margin: Double
-    ) -> Color {
-
-        if margin >= 0.30 {
-
-            return .green
-
-        } else if margin >= 0.15 {
-
-            return .orange
-        }
-
-        return .red
-    }
-
-    func marginDescription(
-        _ margin: Double
-    ) -> String {
-
-        if margin >= 0.30 {
-
-            return "Strong separation between Top 1 and Top 2."
-
-        } else if margin >= 0.15 {
-
-            return "Moderate separation between Top 1 and Top 2."
-        }
-
-        return "Top 1 and Top 2 are close. Classification may be ambiguous."
-    }
-}
-
-// MARK: - Decision Reason
-
-private extension ContentView {
-
-    func decisionReasonView(
-        _ reason: String
-    ) -> some View {
-
-        HStack(spacing: 12) {
-
-            Image(
-                systemName:
-                    decisionReasonIcon(reason)
-            )
-            .font(.title3)
-            .foregroundStyle(
-                decisionReasonColor(reason)
-            )
-
-            VStack(
-                alignment: .leading,
-                spacing: 4
-            ) {
-
-                Text("Decision Reason")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text(
-                    formatDecisionReason(reason)
-                )
-                .font(.headline)
-            }
-
-            Spacer()
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    decisionReasonColor(reason)
-                        .opacity(0.08)
-                )
-        )
-    }
-
-    func formatDecisionReason(
-        _ reason: String
-    ) -> String {
-
-        switch reason {
-
-        case "high_confidence_specific":
-
-            return "High Confidence + Specific"
-
-        case "ambiguous_top_two":
-
-            return "Top-2 Categories Are Ambiguous"
-
-        case "medium_confidence":
-
-            return "Medium Confidence"
-
-        case "low_confidence":
-
-            return "Low Confidence"
-
-        case "not_specific":
-
-            return "News Is Not Specific"
-
-        default:
-
-            return reason
-                .replacingOccurrences(
-                    of: "_",
-                    with: " "
-                )
-                .capitalized
-        }
-    }
-
-    func decisionReasonIcon(
-        _ reason: String
-    ) -> String {
-
-        switch reason {
-
-        case "high_confidence_specific":
-
-            return "checkmark.circle.fill"
-
-        case "ambiguous_top_two":
-
-            return "arrow.left.arrow.right.circle.fill"
-
-        case "medium_confidence":
-
-            return "minus.circle.fill"
-
-        case "low_confidence":
-
-            return "exclamationmark.circle.fill"
-
-        case "not_specific":
-
-            return "questionmark.circle.fill"
-
-        default:
-
-            return "info.circle.fill"
-        }
-    }
-
-    func decisionReasonColor(
-        _ reason: String
-    ) -> Color {
-
-        switch reason {
-
-        case "high_confidence_specific":
-
-            return .green
-
-        case "ambiguous_top_two":
-
-            return .orange
-
-        case "medium_confidence":
-
-            return .orange
-
-        case "low_confidence":
-
-            return .red
-
-        case "not_specific":
-
-            return .orange
-
-        default:
-
-            return .blue
-        }
-    }
-}
-
-// MARK: - Specificity
-
-private extension ContentView {
-
-    func specificityView(
-        _ response: NewsResponse
-    ) -> some View {
-
-        let isSpecific =
-            response.specificity == "specific"
-
-        return HStack(spacing: 14) {
-
-            Image(
-                systemName:
-                    isSpecific
-                    ? "checkmark.circle.fill"
-                    : "questionmark.circle.fill"
-            )
-            .font(.title2)
-            .foregroundStyle(
-                isSpecific
-                ? .green
-                : .orange
-            )
-
-            VStack(
-                alignment: .leading,
-                spacing: 4
-            ) {
-
-                Text("News Specificity")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text(
-                    isSpecific
-                    ? "Specific"
-                    : "Not Specific"
-                )
-                .font(.headline)
-
-                Text(
-                    "Score: \(response.specificityScore * 100, specifier: "%.1f")%"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    (
-                        isSpecific
-                        ? Color.green
-                        : Color.orange
-                    )
-                    .opacity(0.08)
-                )
-        )
-    }
-}
-
-// MARK: - Processing Path
-
-private extension ContentView {
-
-    func processingPathView(
-        _ response: NewsResponse
-    ) -> some View {
-
-        let isJEVOnly =
-            response.processingPath == "jev_only"
-
-        return HStack(spacing: 14) {
-
-            Image(
-                systemName:
-                    isJEVOnly
-                    ? "checkmark.shield.fill"
-                    : "arrow.triangle.branch"
-            )
-            .font(.title2)
-            .foregroundStyle(
-                isJEVOnly
-                ? .green
-                : .blue
-            )
-            .frame(
-                width: 44,
-                height: 44
-            )
-            .background(
-                (
-                    isJEVOnly
-                    ? Color.green
-                    : Color.blue
-                )
-                .opacity(0.12)
-            )
-            .clipShape(Circle())
-
-            VStack(
-                alignment: .leading,
-                spacing: 5
-            ) {
-
-                Text("Processing Path")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text(
-                    isJEVOnly
-                    ? "JEV Only"
-                    : "JEV + Gemini"
-                )
-                .font(.headline)
-                .fontWeight(.semibold)
-
-                Text(
-                    processingPathDescription(
-                        response.processingPath
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Text(
-                isJEVOnly
-                ? "High Confidence"
-                : "Enriched"
-            )
-            .font(.caption)
-            .fontWeight(.semibold)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                (
-                    isJEVOnly
-                    ? Color.green
-                    : Color.blue
-                )
-                .opacity(0.12)
-            )
-            .foregroundStyle(
-                isJEVOnly
-                ? .green
-                : .blue
-            )
-            .clipShape(Capsule())
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(
-                    isJEVOnly
-                    ? Color.green.opacity(0.06)
-                    : Color.blue.opacity(0.06)
-                )
-        )
-    }
-
-    func processingPathDescription(
-        _ path: String
-    ) -> String {
-
-        switch path {
-
-        case "jev_only":
-
-            return "JEV confidence was high enough to complete classification."
-
-        case "jev_then_gemini":
-
-            return "JEV classification was enriched using Gemini."
-
-        case "jev_specificity_check_then_gemini":
-
-            return "JEV found the news was not specific, so Gemini was used for enrichment."
-
-        default:
-
-            return "Classification completed using the AI pipeline."
-        }
-    }
-}
-
-// MARK: - Human Review
-
-private extension ContentView {
-
-    var humanReviewView: some View {
-
-        HStack(spacing: 14) {
-
-            Image(
-                systemName:
-                    "person.crop.circle.badge.exclamationmark"
-            )
-            .font(.title2)
-            .foregroundStyle(.orange)
-
-            VStack(
-                alignment: .leading,
-                spacing: 4
-            ) {
-
-                Text("Human Review Required")
-                    .font(.headline)
-
-                Text(
-                    "The AI pipeline could not confidently process this news."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(
-                    Color.orange.opacity(0.08)
-                )
-        )
-    }
-}
-
-// MARK: - Summary
-
-private extension ContentView {
-
-    func summaryView(
-        _ summary: String
+    private func topTwoView(
+        _ result: NewsResponse
     ) -> some View {
 
         VStack(
@@ -966,58 +423,97 @@ private extension ContentView {
             spacing: 10
         ) {
 
+            Text("Top Categories")
+                .font(.headline)
+
             HStack {
 
-                Image(systemName: "text.quote")
+                VStack(
+                    alignment: .leading
+                ) {
 
-                    .foregroundStyle(.blue)
+                    Text("Top 1")
+                        .font(.caption)
+                        .foregroundStyle(
+                            .secondary
+                        )
 
-                Text("Summary")
+                    Text(
+                        result.topCategory
+                            .capitalized
+                    )
                     .font(.headline)
+
+                    Text(
+                        percentage(
+                            result.topConfidence
+                        )
+                    )
+                    .font(.subheadline)
+                }
+
+                Spacer()
+
+                VStack(
+                    alignment: .trailing
+                ) {
+
+                    Text("Top 2")
+                        .font(.caption)
+                        .foregroundStyle(
+                            .secondary
+                        )
+
+                    Text(
+                        result.secondCategory
+                            .capitalized
+                    )
+                    .font(.headline)
+
+                    Text(
+                        percentage(
+                            result.secondConfidence
+                        )
+                    )
+                    .font(.subheadline)
+                }
             }
 
-            Text(summary)
-                .font(.body)
-                .foregroundStyle(.primary)
+            Text(
+                "Confidence Margin: \(percentage(result.confidenceMargin))"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(
-                    Color(.secondarySystemBackground)
-                )
-        )
     }
 }
 
-// MARK: - Probabilities
+// MARK: - Probability
 
-private extension ContentView {
+extension ContentView {
 
-    func probabilitiesView(
-        _ probabilities: [String: Double]
+    private func probabilityView(
+        probabilities: [String: Double]
     ) -> some View {
 
         VStack(
             alignment: .leading,
-            spacing: 12
+            spacing: 10
         ) {
 
             Text("Category Probabilities")
                 .font(.headline)
 
-            let sorted = probabilities.sorted {
-                $0.value > $1.value
-            }
-
             ForEach(
-                sorted,
+                probabilities.sorted {
+                    $0.value > $1.value
+                },
                 id: \.key
             ) { item in
 
                 VStack(
                     alignment: .leading,
-                    spacing: 6
+                    spacing: 5
                 ) {
 
                     HStack {
@@ -1029,426 +525,173 @@ private extension ContentView {
                         Spacer()
 
                         Text(
-                            "\(item.value * 100, specifier: "%.1f")%"
+                            percentage(item.value)
                         )
-                        .fontWeight(.semibold)
+                        .font(.caption)
                     }
 
                     ProgressView(
-                        value: item.value,
-                        total: 1.0
-                    )
-                    .tint(
-                        item.key
-                        == probabilities.keys.first
-                        ? .blue
-                        : .gray
+                        value: item.value
                     )
                 }
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(
-                    Color(.secondarySystemBackground)
-                )
-        )
     }
 }
 
-// MARK: - JEV vs Gemini Comparison
+// MARK: - Comparison Dashboard
 
-private extension ContentView {
+extension ContentView {
 
-    func comparisonSection(
-        _ response: NewsComparisonResponse
+    private func comparisonDashboard(
+        result: NewsComparisonResponse
     ) -> some View {
 
-        VStack(
-            alignment: .leading,
-            spacing: 18
-        ) {
+        VStack(spacing: 16) {
 
-            HStack {
-
-                Image(
-                    systemName:
-                        "arrow.left.arrow.right"
-                )
-                .font(.title2)
-                .foregroundStyle(.purple)
-
-                Text("JEV vs Gemini")
-                    .font(.title2)
-                    .fontWeight(.bold)
-
-                Spacer()
-            }
-
-            // JEV
-
-            comparisonModelCard(
-                title: "JEV",
-                category: response.jev.category,
-                confidence: response.jev.confidence,
-                icon: "cpu"
+            sectionTitle(
+                "JEV vs Gemini Dashboard",
+                icon: "chart.bar.xaxis"
             )
 
-            // Gemini
-
-            comparisonModelCard(
-                title: "Gemini",
-                category: response.gemini.category,
-                confidence: response.gemini.confidence,
-                icon: "sparkles"
+            modelComparisonCards(
+                result: result
             )
 
-            // Match / Mismatch
-
-            comparisonSummary(
-                response.comparison
+            agreementCard(
+                result: result
             )
 
-            // Gemini Reason
+            performanceCard(
+                result: result
+            )
+
+            tokenCard(
+                gemini: result.gemini
+            )
+
+            multiQuestionCard(
+                questions:
+                    result.jev.questions
+            )
+
+            routeCard(
+                routing:
+                    result.routing
+            )
 
             geminiReasonCard(
-                response.gemini.reason
-            )
-
-            // JEV Specificity
-
-            jevComparisonDetails(
-                response.jev
+                reason:
+                    result.gemini.reason
             )
         }
         .padding()
         .background(
-            RoundedRectangle(cornerRadius: 24)
-                .fill(
-                    Color(.systemBackground)
-                )
+            Color(.secondarySystemBackground)
         )
-        .shadow(
-            color: .black.opacity(0.08),
-            radius: 10,
-            x: 0,
-            y: 5
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 20
+            )
         )
     }
 }
 
-// MARK: - Comparison Model Card
+// MARK: - Model Cards
 
-private extension ContentView {
+extension ContentView {
 
-    func comparisonModelCard(
+    private func modelComparisonCards(
+        result: NewsComparisonResponse
+    ) -> some View {
+
+        HStack(
+            alignment: .top,
+            spacing: 12
+        ) {
+
+            modelCard(
+                title: "JEV",
+                category:
+                    result.jev.category,
+                confidence:
+                    result.jev.confidence,
+                latency:
+                    result.jev.latencyMs
+            )
+
+            modelCard(
+                title: "Gemini",
+                category:
+                    result.gemini.category,
+                confidence:
+                    result.gemini.confidence,
+                latency:
+                    result.gemini.latencyMs
+            )
+        }
+    }
+
+    private func modelCard(
         title: String,
         category: String,
         confidence: Double,
-        icon: String
+        latency: Double
     ) -> some View {
 
         VStack(
             alignment: .leading,
-            spacing: 12
+            spacing: 10
         ) {
 
-            HStack {
-
-                Image(
-                    systemName: icon
-                )
-                .font(.title2)
-                .foregroundStyle(.purple)
-
-                Text(title)
-                    .font(.headline)
-
-                Spacer()
-
-                Text(
-                    "\(confidence * 100, specifier: "%.1f")%"
-                )
+            Text(title)
                 .font(.headline)
+
+            Text(category.capitalized)
+                .font(.title3)
                 .fontWeight(.bold)
-            }
 
             Text(
-                category.capitalized
+                "Confidence \(percentage(confidence))"
             )
-            .font(.title3)
-            .fontWeight(.semibold)
+            .font(.subheadline)
 
-            ProgressView(
-                value: confidence,
-                total: 1.0
-            )
-            .tint(.purple)
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    Color.purple.opacity(0.06)
-                )
-        )
-    }
-}
-
-// MARK: - Comparison Summary
-
-private extension ContentView {
-
-    func comparisonSummary(
-        _ comparison: ComparisonResult
-    ) -> some View {
-
-        let color: Color =
-            comparison.sameCategory
-            ? .green
-            : .orange
-
-        return VStack(spacing: 14) {
-
-            Image(
-                systemName:
-                    comparison.sameCategory
-                    ? "checkmark.circle.fill"
-                    : "exclamationmark.triangle.fill"
-            )
-            .font(
-                .system(size: 40)
-            )
-            .foregroundStyle(color)
-
-            Text(
-                comparison.sameCategory
-                ? "Category Match"
-                : "Category Mismatch"
-            )
-            .font(.headline)
+            Divider()
 
             HStack {
-
-                VStack(spacing: 4) {
-
-                    Text("JEV")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text(
-                        comparison
-                            .jevCategory
-                            .capitalized
-                    )
-                    .fontWeight(.semibold)
-                }
-
-                Spacer()
 
                 Image(
                     systemName:
-                        "arrow.left.arrow.right"
+                        "clock"
                 )
-                .foregroundStyle(.secondary)
-
-                Spacer()
-
-                VStack(spacing: 4) {
-
-                    Text("Gemini")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text(
-                        comparison
-                            .geminiCategory
-                            .capitalized
-                    )
-                    .fontWeight(.semibold)
-                }
-            }
-
-            Divider()
-
-            HStack {
 
                 Text(
-                    "Confidence Difference"
-                )
-
-                Spacer()
-
-                Text(
-                    "\(comparison.confidenceDifference * 100, specifier: "%.2f")%"
-                )
-                .fontWeight(.bold)
-            }
-
-            HStack {
-
-                Text("JEV Confidence")
-
-                Spacer()
-
-                Text(
-                    "\(comparison.jevConfidence * 100, specifier: "%.1f")%"
+                    "\(String(format: "%.2f", latency)) ms"
                 )
             }
-
-            HStack {
-
-                Text("Gemini Confidence")
-
-                Spacer()
-
-                Text(
-                    "\(comparison.geminiConfidence * 100, specifier: "%.1f")%"
-                )
-            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    color.opacity(0.08)
-                )
+        .frame(
+            maxWidth: .infinity,
+            alignment: .leading
+        )
+        .background(.background)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
         )
     }
 }
 
-// MARK: - Gemini Reason
+// MARK: - Agreement
 
-private extension ContentView {
+extension ContentView {
 
-    func geminiReasonCard(
-        _ reason: String
-    ) -> some View {
-
-        VStack(
-            alignment: .leading,
-            spacing: 8
-        ) {
-
-            HStack {
-
-                Image(
-                    systemName: "sparkles"
-                )
-                .foregroundStyle(.purple)
-
-                Text("Gemini Reasoning")
-                    .font(.headline)
-            }
-
-            Text(reason)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    Color(.secondarySystemBackground)
-                )
-        )
-    }
-}
-
-// MARK: - JEV Comparison Details
-
-private extension ContentView {
-
-    func jevComparisonDetails(
-        _ jev: JEVComparisonResult
-    ) -> some View {
-
-        VStack(
-            alignment: .leading,
-            spacing: 12
-        ) {
-
-            Text("JEV Details")
-                .font(.headline)
-
-            HStack {
-
-                Text("Specificity")
-
-                Spacer()
-
-                Text(
-                    jev.specificity
-                        .replacingOccurrences(
-                            of: "_",
-                            with: " "
-                        )
-                        .capitalized
-                )
-                .fontWeight(.semibold)
-            }
-
-            HStack {
-
-                Text("Specificity Score")
-
-                Spacer()
-
-                Text(
-                    "\(jev.specificityScore * 100, specifier: "%.1f")%"
-                )
-                .fontWeight(.semibold)
-            }
-
-            Divider()
-
-            Text("JEV Probabilities")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-
-            let sorted =
-                jev.probabilities.sorted {
-                    $0.value > $1.value
-                }
-
-            ForEach(
-                sorted,
-                id: \.key
-            ) { item in
-
-                HStack {
-
-                    Text(
-                        item.key.capitalized
-                    )
-
-                    Spacer()
-
-                    Text(
-                        "\(item.value * 100, specifier: "%.1f")%"
-                    )
-                    .foregroundStyle(.secondary)
-                }
-                .font(.caption)
-            }
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    Color(.secondarySystemBackground)
-                )
-        )
-    }
-}
-
-// MARK: - Error
-
-private extension ContentView {
-
-    func errorCard(
-        _ message: String
+    private func agreementCard(
+        result: NewsComparisonResponse
     ) -> some View {
 
         VStack(
@@ -1460,16 +703,534 @@ private extension ContentView {
 
                 Image(
                     systemName:
-                        "exclamationmark.triangle.fill"
+                        result.comparison.sameCategory
+                        ? "checkmark.circle.fill"
+                        : "exclamationmark.circle.fill"
                 )
-                .foregroundStyle(.red)
+                .foregroundStyle(
+                    result.comparison.sameCategory
+                    ? .green
+                    : .orange
+                )
 
-                Text("Error")
-                    .font(.headline)
+                Text(
+                    result.comparison.sameCategory
+                    ? "Models agree"
+                    : "Models disagree"
+                )
+                .font(.headline)
+
+                Spacer()
             }
 
-            Text(message)
+            informationRow(
+                title: "JEV",
+                value:
+                    result.comparison.jevCategory
+            )
+
+            informationRow(
+                title: "Gemini",
+                value:
+                    result.comparison.geminiCategory
+            )
+
+            informationRow(
+                title: "Confidence Difference",
+                value:
+                    percentage(
+                        result.comparison
+                            .confidenceDifference
+                    )
+            )
+        }
+        .padding()
+        .background(.background)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
+        )
+    }
+}
+
+// MARK: - Performance
+
+extension ContentView {
+
+    private func performanceCard(
+        result: NewsComparisonResponse
+    ) -> some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 12
+        ) {
+
+            Text("Performance")
+                .font(.headline)
+
+            HStack {
+
+                metric(
+                    title: "JEV",
+                    value:
+                        "\(String(format: "%.2f", result.jev.latencyMs)) ms"
+                )
+
+                metric(
+                    title: "Gemini",
+                    value:
+                        "\(String(format: "%.2f", result.gemini.latencyMs)) ms"
+                )
+
+                metric(
+                    title: "Difference",
+                    value:
+                        "\(String(format: "%.2f", result.comparison.latencyDifferenceMs)) ms"
+                )
+            }
+        }
+        .padding()
+        .background(.background)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
+        )
+    }
+
+    private func metric(
+        title: String,
+        value: String
+    ) -> some View {
+
+        VStack(spacing: 5) {
+
+            Text(title)
                 .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text(value)
+                .font(.headline)
+        }
+        .frame(
+            maxWidth: .infinity
+        )
+    }
+}
+
+// MARK: - Token Dashboard
+
+extension ContentView {
+
+    private func tokenCard(
+        gemini: GeminiClassification
+    ) -> some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 12
+        ) {
+
+            Text("Gemini Token Usage")
+                .font(.headline)
+
+            HStack {
+
+                usageValue(
+                    title: "Input",
+                    value:
+                        "\(gemini.inputTokens)"
+                )
+
+                usageValue(
+                    title: "Output",
+                    value:
+                        "\(gemini.outputTokens)"
+                )
+
+                usageValue(
+                    title: "Thought",
+                    value:
+                        "\(gemini.thoughtTokens)"
+                )
+
+                usageValue(
+                    title: "Total",
+                    value:
+                        "\(gemini.totalTokens)"
+                )
+            }
+
+            Divider()
+
+            HStack {
+
+                VStack(
+                    alignment: .leading
+                ) {
+
+                    Text("Input Cost")
+                        .font(.caption)
+                        .foregroundStyle(
+                            .secondary
+                        )
+
+                    Text(
+                        currency(
+                            gemini.inputCostUsd
+                        )
+                    )
+                    .font(.headline)
+                }
+
+                Spacer()
+
+                VStack(
+                    alignment: .trailing
+                ) {
+
+                    Text("Output Cost")
+                        .font(.caption)
+                        .foregroundStyle(
+                            .secondary
+                        )
+
+                    Text(
+                        currency(
+                            gemini.outputCostUsd
+                        )
+                    )
+                    .font(.headline)
+                }
+            }
+
+            HStack {
+
+                Text("Total Cost")
+
+                Spacer()
+
+                Text(
+                    currency(
+                        gemini.totalCostUsd
+                    )
+                )
+                .font(.title3)
+                .fontWeight(.bold)
+            }
+        }
+        .padding()
+        .background(.background)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
+        )
+    }
+
+    private func usageValue(
+        title: String,
+        value: String
+    ) -> some View {
+
+        VStack(spacing: 4) {
+
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text(value)
+                .font(.headline)
+        }
+        .frame(
+            maxWidth: .infinity
+        )
+    }
+}
+
+// MARK: - JEV Multi Question
+
+extension ContentView {
+
+    private func multiQuestionCard(
+        questions: JEVQuestionResults
+    ) -> some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 12
+        ) {
+
+            HStack {
+
+                Text("JEV Questions")
+
+                Spacer()
+
+                Text("5 Questions")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.headline)
+
+            // Category is String
+            questionRow(
+                "Category",
+                questions.category
+            )
+
+            // These are Double
+            questionRow(
+                "Specificity",
+                questions.specificity
+            )
+
+            questionRow(
+                "Sports",
+                questions.isSports
+            )
+
+            questionRow(
+                "Business",
+                questions.isBusiness
+            )
+
+            questionRow(
+                "Technology",
+                questions.isTechnology
+            )
+
+            questionRow(
+                "Politics",
+                questions.isPolitics
+            )
+        }
+        .padding()
+        .background(.background)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
+        )
+    }
+
+    // For Double values
+    private func questionRow(
+        _ title: String,
+        _ value: Double,
+        isPercentage: Bool = true
+    ) -> some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 5
+        ) {
+
+            HStack {
+
+                Text(title)
+
+                Spacer()
+
+                Text(
+                    isPercentage
+                    ? percentage(value)
+                    : String(
+                        format: "%.2f",
+                        value
+                    )
+                )
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            }
+
+            if isPercentage {
+
+                ProgressView(
+                    value: value
+                )
+            }
+        }
+    }
+
+    // For String values
+    private func questionRow(
+        _ title: String,
+        _ value: String
+    ) -> some View {
+
+        HStack {
+
+            Text(title)
+
+            Spacer()
+
+            Text(value.capitalized)
+                .fontWeight(.semibold)
+        }
+    }
+}
+
+// MARK: - Routing
+
+extension ContentView {
+
+    private func routeCard(
+        routing: RoutingResponse
+    ) -> some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 12
+        ) {
+
+            HStack {
+
+                Image(
+                    systemName:
+                        routeIcon(
+                            routing.route
+                        )
+                )
+                .font(.title2)
+
+                Text("Auto Router")
+                    .font(.headline)
+
+                Spacer()
+
+                Text(
+                    routing.route
+                        .replacingOccurrences(
+                            of: "_",
+                            with: " "
+                        )
+                        .capitalized
+                )
+                .font(.subheadline)
+                .fontWeight(.bold)
+            }
+
+            Text(routing.reason)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if routing.needsFollowUp {
+
+                Divider()
+
+                Label(
+                    "Follow-up Required",
+                    systemImage:
+                        "questionmark.circle.fill"
+                )
+                .font(.headline)
+
+                if let question = routing.question {
+
+                    Text(question)
+                        .font(.subheadline)
+                }
+
+                if !routing.options.isEmpty {
+
+                    HStack {
+
+                        ForEach(
+                            routing.options,
+                            id: \.self
+                        ) { option in
+
+                            Text(
+                                option.capitalized
+                            )
+                            .font(.caption)
+                            .padding(
+                                .horizontal,
+                                10
+                            )
+                            .padding(
+                                .vertical,
+                                6
+                            )
+                            .background(
+                                Color.blue
+                                    .opacity(0.1)
+                            )
+                            .clipShape(
+                                Capsule()
+                            )
+                        }
+                    }
+                }
+            }
+
+            if routing.needsHumanReview {
+
+                Divider()
+
+                Label(
+                    "Human Review Required",
+                    systemImage:
+                        "person.crop.circle.badge.exclamationmark"
+                )
+                .foregroundStyle(.red)
+                .fontWeight(.semibold)
+            }
+        }
+        .padding()
+        .background(.background)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
+        )
+    }
+
+    private func routeIcon(
+        _ route: String
+    ) -> String {
+
+        switch route {
+
+        case "jev_only":
+            return "checkmark.circle.fill"
+
+        case "jev_then_gemini":
+            return "arrow.triangle.branch"
+
+        case "ask_follow_up":
+            return "questionmark.circle.fill"
+
+        case "human_review":
+            return "person.crop.circle.badge.exclamationmark"
+
+        default:
+            return "circle"
+        }
+    }
+}
+
+// MARK: - Gemini Reason
+
+extension ContentView {
+
+    private func geminiReasonCard(
+        reason: String
+    ) -> some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 8
+        ) {
+
+            Text("Gemini Reason")
+                .font(.headline)
+
+            Text(reason)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .frame(
@@ -1477,87 +1238,161 @@ private extension ContentView {
             alignment: .leading
         )
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(
-                    Color.red.opacity(0.08)
-                )
+        .background(.background)
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
         )
+    }
+}
+
+// MARK: - Reusable UI
+
+extension ContentView {
+
+    private func sectionTitle(
+        _ title: String,
+        icon: String
+    ) -> some View {
+
+        HStack {
+
+            Image(systemName: icon)
+
+            Text(title)
+                .font(.title3)
+                .fontWeight(.bold)
+
+            Spacer()
+        }
+    }
+
+    private func categoryBadge(
+        _ category: String
+    ) -> some View {
+
+        Text(category.uppercased())
+            .font(.headline)
+            .fontWeight(.bold)
+            .foregroundStyle(.white)
+            .padding(
+                .horizontal,
+                16
+            )
+            .padding(
+                .vertical,
+                8
+            )
+            .background(
+                categoryColor(category)
+            )
+            .clipShape(
+                Capsule()
+            )
+    }
+
+    private func confidenceRow(
+        title: String,
+        value: Double
+    ) -> some View {
+
+        HStack {
+
+            Text(title)
+
+            Spacer()
+
+            Text(
+                percentage(value)
+            )
+            .fontWeight(.bold)
+        }
+    }
+
+    private func informationRow(
+        title: String,
+        value: String
+    ) -> some View {
+
+        HStack(
+            alignment: .top
+        ) {
+
+            Text(title)
+                .foregroundStyle(
+                    .secondary
+                )
+
+            Spacer()
+
+            Text(value)
+                .fontWeight(.medium)
+                .multilineTextAlignment(
+                    .trailing
+                )
+        }
+        .font(.subheadline)
     }
 }
 
 // MARK: - Helpers
 
-private extension ContentView {
+extension ContentView {
 
-    func categoryIcon(
-        _ category: String
+    private func percentage(
+        _ value: Double
     ) -> String {
+
+        String(
+            format: "%.1f%%",
+            value * 100
+        )
+    }
+
+    private func currency(
+        _ value: Double
+    ) -> String {
+
+        String(
+            format: "$%.6f",
+            value
+        )
+    }
+
+    private func categoryColor(
+        _ category: String
+    ) -> Color {
 
         switch category.lowercased() {
 
         case "technology":
-            return "cpu"
+            return .blue
 
         case "business":
-            return "chart.line.uptrend.xyaxis"
+            return .orange
 
         case "sports":
-            return "sportscourt"
-
-        case "politics":
-            return "building.columns"
-
-        case "entertainment":
-            return "film"
-
-        case "science":
-            return "atom"
-
-        case "health":
-            return "cross.case"
-
-        default:
-            return "newspaper"
-        }
-    }
-
-    func confidenceColor(
-        _ confidence: Double
-    ) -> Color {
-
-        if confidence >= 0.90 {
-
             return .green
 
-        } else if confidence >= 0.60 {
+        case "politics":
+            return .purple
 
-            return .orange
+        case "entertainment":
+            return .pink
+
+        case "science":
+            return .indigo
+
+        case "health":
+            return .red
+
+        default:
+            return .gray
         }
-
-        return .red
-    }
-
-    func confidenceLevel(
-        _ confidence: Double
-    ) -> String {
-
-        if confidence >= 0.90 {
-
-            return "High confidence"
-
-        } else if confidence >= 0.60 {
-
-            return "Medium confidence"
-        }
-
-        return "Low confidence"
     }
 }
 
-// MARK: - Preview
-
 #Preview {
-
     ContentView()
 }

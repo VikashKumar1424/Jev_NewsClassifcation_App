@@ -1,8 +1,8 @@
 import os
+import time
 
 from dotenv import load_dotenv
 from typesafe_sdk import AsyncTypeSafeClient, Choice, Noul
-
 
 load_dotenv(".env", override=True)
 
@@ -19,7 +19,6 @@ class JevService:
             )
 
         self.api_key = api_key
-
         self.model = "jev-latest"
 
     async def classify(self, text: str) -> dict:
@@ -28,14 +27,17 @@ class JevService:
             "news": text
         }
 
+        # -----------------------------------------
+        # MULTIPLE JEV QUESTIONS
+        # -----------------------------------------
+
         questions = {
 
             "category": Choice(
-
                 instructions=(
-                    "Classify the news into exactly one category."
+                    "Classify the news into exactly "
+                    "one category."
                 ),
-
                 criteria={
 
                     "technology": (
@@ -75,27 +77,58 @@ class JevService:
                     ),
 
                     "other": (
-                        "A specific and understandable news topic "
-                        "that does not belong to the other categories."
+                        "A specific understandable news topic that "
+                        "does not belong to the other categories."
                     ),
                 },
             ),
 
+            # Question 2
             "specificity": Noul(
-
                 instructions=(
-                    "Evaluate whether the news contains enough "
-                    "concrete information to understand what "
-                    "actually happened. "
-                    "Return a high value when the news describes "
-                    "a concrete event, subject, organization, "
-                    "person, product, discovery, decision or situation. "
-                    "Return a low value when the text is vague, "
-                    "generic, incomplete, hypothetical, ambiguous, "
-                    "or does not provide enough concrete details."
+                    "Does this news contain enough concrete "
+                    "information to understand what actually happened?"
+                ),
+            ),
+
+            # Question 3
+            "is_sports": Noul(
+                instructions=(
+                    "Is this news primarily about sports, "
+                    "sporting events, players, teams or competitions?"
+                ),
+            ),
+
+            # Question 4
+            "is_business": Noul(
+                instructions=(
+                    "Is this news primarily about business, "
+                    "companies, markets, finance or the economy?"
+                ),
+            ),
+
+            # Question 5
+            "is_technology": Noul(
+                instructions=(
+                    "Is this news primarily about technology, "
+                    "software, AI, computers, devices or cybersecurity?"
+                ),
+            ),
+
+            # Question 6
+            "is_politics": Noul(
+                instructions=(
+                    "Is this news primarily about government, "
+                    "politics, elections, legislation or public policy?"
                 ),
             ),
         }
+
+        # -----------------------------------------
+        # LATENCY
+        # -----------------------------------------
+
+        start_time = time.perf_counter()
 
         async with AsyncTypeSafeClient(
             api_key=self.api_key,
@@ -107,63 +140,91 @@ class JevService:
                 questions=questions,
             )
 
-        # ---------------------------------------------
-        # Category
-        # ---------------------------------------------
+        latency_ms = (
+            time.perf_counter() - start_time
+        ) * 1000
 
-        category_answer = response.choices["category"]
+        # -----------------------------------------
+        # RESULTS
+        # -----------------------------------------
 
-        category = category_answer.choice
-
-        confidence = float(
-            category_answer.confidence
+        category_answer = (
+            response.choices["category"]
         )
 
-        probabilities = dict(
-            category_answer.probabilities
+        specificity_answer = (
+            response.nouls["specificity"]
         )
-
-        # ---------------------------------------------
-        # Specificity
-        # ---------------------------------------------
-
-        specificity_answer = response.nouls[
-            "specificity"
-        ]
 
         specificity_score = float(
             specificity_answer.noul
         )
 
-        if specificity_score >= 0.50:
+        # Additional JEV questions
 
-            specificity = "specific"
+        is_sports = float(
+            response.nouls["is_sports"].noul
+        )
 
-        else:
+        is_business = float(
+            response.nouls["is_business"].noul
+        )
 
-            specificity = "not_specific"
+        is_technology = float(
+            response.nouls["is_technology"].noul
+        )
 
-        # ---------------------------------------------
-        # IMPORTANT
-        # ---------------------------------------------
+        is_politics = float(
+            response.nouls["is_politics"].noul
+        )
+
+        specificity = (
+            "specific"
+            if specificity_score >= 0.50
+            else "not_specific"
+        )
 
         result = {
 
-            "category": category,
+            "category": category_answer.choice,
 
-            "confidence": confidence,
+            "confidence": float(
+                category_answer.confidence
+            ),
 
-            "probabilities": probabilities,
+            "probabilities": dict(
+                category_answer.probabilities
+            ),
 
             "specificity": specificity,
 
             "specificity_score": specificity_score,
+
+            # Multiple question results
+            "questions": {
+                "category": category_answer.choice,
+                "specificity": specificity_score,
+                "is_sports": is_sports,
+                "is_business": is_business,
+                "is_technology": is_technology,
+                "is_politics": is_politics,
+            },
+
+            # Performance
+            "latency_ms": round(
+                latency_ms,
+                2,
+            ),
+
+            "question_count": len(questions),
+
+            "execution_mode": "system_one",
         }
 
         print()
         print("========== JEV RESULT ==========")
         print(result)
-        print("=================================")
+        print("================================")
         print()
 
         return result

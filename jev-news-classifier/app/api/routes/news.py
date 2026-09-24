@@ -4,8 +4,10 @@ from app.models.news import (
     NewsRequest,
     NewsResponse,
     NewsComparisonResponse,
+    JEVComparisonResult,
     GeminiClassification,
     ComparisonResult,
+    RoutingResponse,
 )
 
 from app.services.classifier_service import ClassifierService
@@ -16,35 +18,42 @@ router = APIRouter(
     tags=["News"],
 )
 
+
 classifier_service = ClassifierService()
 
 
-# ---------------------------------------------------------
-# Existing endpoint
-# ---------------------------------------------------------
+# ============================================================
+# CLASSIFY
+# ============================================================
 
 @router.post(
     "/classify",
     response_model=NewsResponse,
 )
-async def classify_news(request: NewsRequest):
+async def classify_news(
+    request: NewsRequest,
+):
 
     result = await classifier_service.classify(
         request.text
     )
 
-    return NewsResponse(**result)
+    return NewsResponse(
+        **result
+    )
 
 
-# ---------------------------------------------------------
-# JEV vs Gemini comparison
-# ---------------------------------------------------------
+# ============================================================
+# COMPARE JEV vs GEMINI
+# ============================================================
 
 @router.post(
     "/compare",
     response_model=NewsComparisonResponse,
 )
-async def compare_news(request: NewsRequest):
+async def compare_news(
+    request: NewsRequest,
+):
 
     result = await classifier_service.compare(
         request.text
@@ -53,7 +62,9 @@ async def compare_news(request: NewsRequest):
     return NewsComparisonResponse(
         text=result["text"],
 
-        jev=result["jev"],
+        jev=JEVComparisonResult(
+            **result["jev"]
+        ),
 
         gemini=GeminiClassification(
             **result["gemini"]
@@ -61,5 +72,9 @@ async def compare_news(request: NewsRequest):
 
         comparison=ComparisonResult(
             **result["comparison"]
+        ),
+
+        routing=RoutingResponse(
+            **result["routing"]
         ),
     )

@@ -9,13 +9,36 @@
 
 import Foundation
 
-struct NewsAPIService {
+enum APIError: LocalizedError {
+    case invalidURL
+    case invalidResponse
+    case serverError(Int)
+    case decodingError(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "Invalid API URL."
+
+        case .invalidResponse:
+            return "Invalid response from server."
+
+        case .serverError(let statusCode):
+            return "Server returned HTTP \(statusCode)."
+
+        case .decodingError(let message):
+            return "JSON decoding failed: \(message)"
+        }
+    }
+}
+
+final class NewsAPIService {
 
     private let baseURL = "http://127.0.0.1:8000"
 
-    func classify(
-        text: String
-    ) async throws -> NewsResponse {
+    // MARK: - Classify
+
+    func classify(text: String) async throws -> NewsResponse {
 
         guard let url = URL(
             string: "\(baseURL)/api/v1/news/classify"
@@ -23,9 +46,7 @@ struct NewsAPIService {
             throw APIError.invalidURL
         }
 
-        var request = URLRequest(
-            url: url
-        )
+        var request = URLRequest(url: url)
 
         request.httpMethod = "POST"
 
@@ -34,18 +55,11 @@ struct NewsAPIService {
             forHTTPHeaderField: "Content-Type"
         )
 
-        let body = NewsRequest(
-            text: text
-        )
+        let body = NewsRequest(text: text)
 
-        request.httpBody = try JSONEncoder().encode(
-            body
-        )
+        request.httpBody = try JSONEncoder().encode(body)
 
-        let (
-            data,
-            response
-        ) = try await URLSession.shared.data(
+        let (data, response) = try await URLSession.shared.data(
             for: request
         )
 
@@ -53,59 +67,38 @@ struct NewsAPIService {
             throw APIError.invalidResponse
         }
 
-        guard
-            200...299 ~= httpResponse.statusCode
-        else {
+        print("HTTP Status:", httpResponse.statusCode)
 
-            let serverMessage =
-                String(
-                    data: data,
-                    encoding: .utf8
-                )
-                ?? "Unknown server error"
-
-            throw APIError.serverError(
-                statusCode: httpResponse.statusCode,
-                message: serverMessage
-            )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.serverError(httpResponse.statusCode)
         }
 
         do {
-            print(String(bytes: data, encoding: .utf8))
-
             return try JSONDecoder().decode(
                 NewsResponse.self,
                 from: data
             )
-
         } catch {
+            print("❌ Decode error:", error)
 
-            print(
-                "❌ JSON Decoding Error:"
-            )
-
-            print(error)
-
-            if let jsonString =
-                String(
-                    data: data,
-                    encoding: .utf8
-                ) {
-
-                print(
-                    "Server Response:"
-                )
-
-                print(jsonString)
+            if let json = String(
+                data: data,
+                encoding: .utf8
+            ) {
+                print("❌ JSON:", json)
             }
 
             throw APIError.decodingError(
-                error
+                error.localizedDescription
             )
         }
     }
-    
-    func compare(text: String) async throws -> NewsComparisonResponse {
+
+    // MARK: - Compare JEV vs Gemini
+
+    func compare(
+        text: String
+    ) async throws -> NewsComparisonResponse {
 
         guard let url = URL(
             string: "\(baseURL)/api/v1/news/compare"
@@ -126,8 +119,7 @@ struct NewsAPIService {
 
         request.httpBody = try JSONEncoder().encode(body)
 
-        print("🌐 Calling:")
-        print(url.absoluteString)
+        print("Calling:", url.absoluteString)
 
         let (data, response) = try await URLSession.shared.data(
             for: request
@@ -137,21 +129,18 @@ struct NewsAPIService {
             throw APIError.invalidResponse
         }
 
-        print("📡 HTTP Status: \(httpResponse.statusCode)")
+        print("HTTP Status:", httpResponse.statusCode)
 
-        guard 200...299 ~= httpResponse.statusCode else {
+        guard (200...299).contains(httpResponse.statusCode) else {
 
-            let serverMessage =
-                String(data: data, encoding: .utf8)
-                ?? "Unknown server error"
+            if let serverMessage = String(
+                data: data,
+                encoding: .utf8
+            ) {
+                print("Server Error:", serverMessage)
+            }
 
-            print("❌ Server Error:")
-            print(serverMessage)
-
-            throw APIError.serverError(
-                statusCode: httpResponse.statusCode,
-                message: serverMessage
-            )
+            throw APIError.serverError(httpResponse.statusCode)
         }
 
         do {
@@ -161,7 +150,7 @@ struct NewsAPIService {
                 from: data
             )
 
-            print("✅ JSON decoded successfully")
+            print("JSON decoded successfully")
 
             return result
 
@@ -170,67 +159,17 @@ struct NewsAPIService {
             print("❌ Comparison JSON decoding error:")
             print(error)
 
-            if let jsonString = String(
+            if let json = String(
                 data: data,
                 encoding: .utf8
             ) {
-                print("Server Response:")
-                print(jsonString)
+                print("❌ JSON:")
+                print(json)
             }
 
-            throw APIError.decodingError(error)
-        }
-    }
-}
-
-// MARK: - API Error
-
-enum APIError: LocalizedError {
-
-    case invalidURL
-    case invalidResponse
-
-    case serverError(
-        statusCode: Int,
-        message: String
-    )
-
-    case decodingError(
-        Error
-    )
-
-    var errorDescription: String? {
-
-        switch self {
-
-        case .invalidURL:
-
-            return "Invalid API URL."
-
-        case .invalidResponse:
-
-            return "Invalid server response."
-
-        case .serverError(
-            let statusCode,
-            let message
-        ):
-
-            return """
-            Server Error \(statusCode)
-
-            \(message)
-            """
-
-        case .decodingError(
-            let error
-        ):
-
-            return """
-            JSON decoding failed:
-
-            \(error.localizedDescription)
-            """
+            throw APIError.decodingError(
+                error.localizedDescription
+            )
         }
     }
 }
