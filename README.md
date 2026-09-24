@@ -2,52 +2,15 @@
 
 A SwiftUI iOS app backed by a Python FastAPI service for classifying news. The backend uses JEV to determine a news category and specificity, then routes lower-confidence or ambiguous inputs to Google Gemini for summary generation and review.
 
+ ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/fdbbff511d1115a67095e0abdf20f6d1c5200188/iOS4.jpg)
  ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/318257500cf88d7b7288a519f4b33bb32d8ff2e6/iOS3.jpg)
- ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/089cab8ec859e3c719ff99bcc82dcbc2ae130e71/iOS2.jpg)
+
 
 ## Architecture
 
 The current implementation follows a decision pipeline with a specificity gate before the confidence gate. The flow is: SwiftUI sends text to the FastAPI backend, JEV first classifies the article and scores specificity, and Gemini is only used for human-review or enrichment cases.
 
-```mermaid
-flowchart LR
-    User[User enters headline or article] --> UI[SwiftUI ContentView]
-    UI --> Store[NewsStore\nMainActor observable state]
-    Store --> APIClient[NewsAPIService\nURLSession POST /api/v1/news/classify]
-    APIClient --> FastAPI[FastAPI app\napp.main:app]
-    FastAPI --> Router[News router\n/api/v1/news/classify]
-    Router --> Classifier[ClassifierService.classify()]
 
-    Classifier --> JEV[JevService\nAsyncTypeSafeClient / jev-latest]
-    JEV --> Category[category + confidence + probabilities]
-    JEV --> Specificity[specificity + specificity_score]
-
-    Specificity --> Gate{specificity_score >= 0.50?}
-
-    Gate -- No --> GeminiSpecific[GeminiService.summarize()] 
-    GeminiSpecific --> Review1[needs_human_review = true\nprocessing_path = jev_specificity_check_then_gemini]
-
-    Gate -- Yes --> Confidence{confidence >= 0.90?}
-
-    Confidence -- Yes --> High[summary = "High-confidence JEV classification."\nprocessing_path = jev_only\nneeds_human_review = false]
-
-    Confidence -- No --> Medium{confidence >= 0.60?}
-
-    Medium -- Yes --> GeminiMedium[GeminiService.summarize()] 
-    GeminiMedium --> Enriched[processing_path = jev_then_gemini\nneeds_human_review = false]
-
-    Medium -- No --> GeminiLow[GeminiService.summarize()] 
-    GeminiLow --> Review2[processing_path = jev_then_gemini\nneeds_human_review = true]
-
-    High --> Response[NewsResponse JSON]
-    Review1 --> Response
-    Enriched --> Response
-    Review2 --> Response
-
-    Response --> APIClient
-    APIClient --> Store
-    Store --> Result[SwiftUI result card\ncategory, confidence, summary, probabilities]
-```
 
 ### Component view
 
