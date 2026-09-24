@@ -7,7 +7,7 @@ A SwiftUI iOS app backed by a Python FastAPI service for classifying news. The b
 
 ## Architecture
 
-The current implementation follows a three-layer flow: a SwiftUI frontend sends text to the FastAPI classifier, the backend runs a JEV classification and specificity gate first, and it only invokes Gemini for summary enrichment or review cases.
+The current implementation follows a decision pipeline with a specificity gate before the confidence gate. The flow is: SwiftUI sends text to the FastAPI backend, JEV first classifies the article and scores specificity, and Gemini is only used for human-review or enrichment cases.
 
 ```mermaid
 flowchart LR
@@ -16,24 +16,30 @@ flowchart LR
     Store --> APIClient[NewsAPIService\nURLSession POST /api/v1/news/classify]
     APIClient --> FastAPI[FastAPI app\napp.main:app]
     FastAPI --> Router[News router\n/api/v1/news/classify]
-    Router --> Service[ClassifierService.classify()]
+    Router --> Classifier[ClassifierService.classify()]
 
-    Service --> JEV[JevService\nTypeSafe AsyncTypeSafeClient]
-    JEV --> Category{Category + confidence\nfrom JEV}
-    JEV --> Specificity{Specificity score >= 0.50?}
+    Classifier --> JEV[JevService\nAsyncTypeSafeClient / jev-latest]
+    JEV --> Category[category + confidence + probabilities]
+    JEV --> Specificity[specificity + specificity_score]
 
-    Specificity -- No --> Gemini1[GeminiService.summarize()] 
-    Gemini1 --> Review1[needs_human_review = true\nprocessing_path = jev_specificity_check_then_gemini]
+    Specificity --> Gate{specificity_score >= 0.50?}
 
-    Specificity -- Yes --> High{confidence >= 0.90?}
-    High -- Yes --> JEVOnly[summary = High-confidence JEV classification\nprocessing_path = jev_only\nneeds_human_review = false]
-    High -- No --> Mid{confidence >= 0.60?}
-    Mid -- Yes --> Gemini2[GeminiService.summarize()] 
-    Gemini2 --> Enriched[processing_path = jev_then_gemini\nneeds_human_review = false]
-    Mid -- No --> Gemini3[GeminiService.summarize()] 
-    Gemini3 --> Review2[processing_path = jev_then_gemini\nneeds_human_review = true]
+    Gate -- No --> GeminiSpecific[GeminiService.summarize()] 
+    GeminiSpecific --> Review1[needs_human_review = true\nprocessing_path = jev_specificity_check_then_gemini]
 
-    JEVOnly --> Response[NewsResponse JSON]
+    Gate -- Yes --> Confidence{confidence >= 0.90?}
+
+    Confidence -- Yes --> High[summary = "High-confidence JEV classification."\nprocessing_path = jev_only\nneeds_human_review = false]
+
+    Confidence -- No --> Medium{confidence >= 0.60?}
+
+    Medium -- Yes --> GeminiMedium[GeminiService.summarize()] 
+    GeminiMedium --> Enriched[processing_path = jev_then_gemini\nneeds_human_review = false]
+
+    Medium -- No --> GeminiLow[GeminiService.summarize()] 
+    GeminiLow --> Review2[processing_path = jev_then_gemini\nneeds_human_review = true]
+
+    High --> Response[NewsResponse JSON]
     Review1 --> Response
     Enriched --> Response
     Review2 --> Response
@@ -71,10 +77,11 @@ flowchart LR
 1. `ContentView` collects the news text and asks `NewsStore` to classify it.
 2. `NewsAPIService` sends the text as JSON to `POST /api/v1/news/classify`.
 3. FastAPI validates the request with `NewsRequest` and delegates to `ClassifierService`.
-4. `JevService` classifies the text into `technology`, `business`, `sports`, `politics`, `entertainment`, `science`, `health`, or `other`, and computes a specificity score.
-5. `ClassifierService` checks specificity first (`specificity_score >= 0.50`). If not specific, it invokes Gemini and marks the item for human review.
-6. If it is specific and confidence is `>= 0.90`, JEV remains the only processing path. If confidence is medium or low, Gemini summarizes the article and the item may still require human review.
-7. The response is decoded into `NewsResponse` and rendered by the SwiftUI result card.
+4. `JevService` classifies the text into `technology`, `business`, `sports`, `politics`, `entertainment`, `science`, `health`, or `other`, and computes a `specificity_score`.
+5. `ClassifierService` runs a specificity gate first: if `specificity_score < 0.50`, it calls `GeminiService` and returns `needs_human_review = true` with `processing_path = "jev_specificity_check_then_gemini"`.
+6. If the input is specific and `confidence >= 0.90`, it returns a pure JEV result with `processing_path = "jev_only"` and no human review.
+7. If the input is specific and confidence is in the medium or low range, it calls Gemini and sets `processing_path = "jev_then_gemini"`; low-confidence results also trigger human review.
+8. The response is decoded into `NewsResponse` and rendered by the SwiftUI result card.
 
 ## Repository layout
 
