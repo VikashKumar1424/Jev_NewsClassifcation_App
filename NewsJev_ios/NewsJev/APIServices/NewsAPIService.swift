@@ -104,6 +104,83 @@ struct NewsAPIService {
             )
         }
     }
+    
+    func compare(text: String) async throws -> NewsComparisonResponse {
+
+        guard let url = URL(
+            string: "\(baseURL)/api/v1/news/compare"
+        ) else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+
+        request.httpMethod = "POST"
+
+        request.setValue(
+            "application/json",
+            forHTTPHeaderField: "Content-Type"
+        )
+
+        let body = NewsRequest(text: text)
+
+        request.httpBody = try JSONEncoder().encode(body)
+
+        print("🌐 Calling:")
+        print(url.absoluteString)
+
+        let (data, response) = try await URLSession.shared.data(
+            for: request
+        )
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        print("📡 HTTP Status: \(httpResponse.statusCode)")
+
+        guard 200...299 ~= httpResponse.statusCode else {
+
+            let serverMessage =
+                String(data: data, encoding: .utf8)
+                ?? "Unknown server error"
+
+            print("❌ Server Error:")
+            print(serverMessage)
+
+            throw APIError.serverError(
+                statusCode: httpResponse.statusCode,
+                message: serverMessage
+            )
+        }
+
+        do {
+
+            let result = try JSONDecoder().decode(
+                NewsComparisonResponse.self,
+                from: data
+            )
+
+            print("✅ JSON decoded successfully")
+
+            return result
+
+        } catch {
+
+            print("❌ Comparison JSON decoding error:")
+            print(error)
+
+            if let jsonString = String(
+                data: data,
+                encoding: .utf8
+            ) {
+                print("Server Response:")
+                print(jsonString)
+            }
+
+            throw APIError.decodingError(error)
+        }
+    }
 }
 
 // MARK: - API Error

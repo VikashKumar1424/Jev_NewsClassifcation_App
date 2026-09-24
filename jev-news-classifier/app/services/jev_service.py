@@ -1,12 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-
-from typesafe_sdk import (
-    AsyncTypeSafeClient,
-    Choice,
-    Noul,
-)
+from typesafe_sdk import AsyncTypeSafeClient, Choice, Noul
 
 
 load_dotenv(".env", override=True)
@@ -16,9 +11,7 @@ class JevService:
 
     def __init__(self):
 
-        api_key = os.getenv(
-            "TYPESAFE_API_KEY"
-        )
+        api_key = os.getenv("TYPESAFE_API_KEY")
 
         if not api_key:
             raise RuntimeError(
@@ -29,10 +22,7 @@ class JevService:
 
         self.model = "jev-latest"
 
-    async def classify(
-        self,
-        text: str,
-    ) -> dict:
+    async def classify(self, text: str) -> dict:
 
         state = {
             "news": text
@@ -40,15 +30,10 @@ class JevService:
 
         questions = {
 
-            # -----------------------------------------
-            # Category
-            # -----------------------------------------
-
             "category": Choice(
 
                 instructions=(
-                    "Classify the news into exactly one "
-                    "category."
+                    "Classify the news into exactly one category."
                 ),
 
                 criteria={
@@ -96,22 +81,18 @@ class JevService:
                 },
             ),
 
-            # -----------------------------------------
-            # Specificity
-            # -----------------------------------------
-
             "specificity": Noul(
 
                 instructions=(
-                    "Does this news contain enough concrete "
-                    "information to understand what actually "
-                    "happened? Return a high value when the news "
-                    "describes a concrete event, subject, "
-                    "organization, person, product, discovery, "
-                    "decision or situation. Return a low value "
-                    "when the text is vague, generic, incomplete, "
-                    "hypothetical, ambiguous, or does not provide "
-                    "enough concrete details."
+                    "Evaluate whether the news contains enough "
+                    "concrete information to understand what "
+                    "actually happened. "
+                    "Return a high value when the news describes "
+                    "a concrete event, subject, organization, "
+                    "person, product, discovery, decision or situation. "
+                    "Return a low value when the text is vague, "
+                    "generic, incomplete, hypothetical, ambiguous, "
+                    "or does not provide enough concrete details."
                 ),
             ),
         }
@@ -126,38 +107,63 @@ class JevService:
                 questions=questions,
             )
 
-        # -----------------------------------------
-        # Extract JEV responses
-        # -----------------------------------------
+        # ---------------------------------------------
+        # Category
+        # ---------------------------------------------
 
-        category_answer = (
-            response.choices["category"]
+        category_answer = response.choices["category"]
+
+        category = category_answer.choice
+
+        confidence = float(
+            category_answer.confidence
         )
 
-        specificity_answer = (
-            response.nouls["specificity"]
+        probabilities = dict(
+            category_answer.probabilities
         )
 
-        specificity_score = (
+        # ---------------------------------------------
+        # Specificity
+        # ---------------------------------------------
+
+        specificity_answer = response.nouls[
+            "specificity"
+        ]
+
+        specificity_score = float(
             specificity_answer.noul
         )
 
         if specificity_score >= 0.50:
+
             specificity = "specific"
+
         else:
+
             specificity = "not_specific"
 
-        return {
+        # ---------------------------------------------
+        # IMPORTANT
+        # ---------------------------------------------
 
-            "category": category_answer.choice,
+        result = {
 
-            "confidence": category_answer.confidence,
+            "category": category,
 
-            "probabilities": (
-                category_answer.probabilities
-            ),
+            "confidence": confidence,
+
+            "probabilities": probabilities,
 
             "specificity": specificity,
 
             "specificity_score": specificity_score,
         }
+
+        print()
+        print("========== JEV RESULT ==========")
+        print(result)
+        print("=================================")
+        print()
+
+        return result

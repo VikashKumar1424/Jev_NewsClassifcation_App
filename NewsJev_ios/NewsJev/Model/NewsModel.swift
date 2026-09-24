@@ -78,3 +78,60 @@ struct NewsResponse: Codable {
             "decision_reason"
     }
 }
+
+struct GeminiClassification: Codable {
+    let category: String
+    let confidence: Double
+    let reason: String
+}
+
+struct JEVComparisonResult: Codable {
+    let category: String
+    let confidence: Double
+    let probabilities: [String: Double]
+    let specificity: String
+    let specificityScore: Double
+
+    enum CodingKeys: String, CodingKey {
+        case category
+        case confidence
+        case probabilities
+        case specificity
+        case specificityScore = "specificity_score"
+    }
+}
+
+struct ComparisonResult: Codable {
+    let sameCategory: Bool
+    let confidenceDifference: Double
+    let categoryMatch: String
+
+    let jevCategory: String
+    let jevConfidence: Double
+
+    let geminiCategory: String
+    let geminiConfidence: Double
+
+    let geminiReason: String
+
+    enum CodingKeys: String, CodingKey {
+        case sameCategory = "same_category"
+        case confidenceDifference = "confidence_difference"
+        case categoryMatch = "category_match"
+
+        case jevCategory = "jev_category"
+        case jevConfidence = "jev_confidence"
+
+        case geminiCategory = "gemini_category"
+        case geminiConfidence = "gemini_confidence"
+
+        case geminiReason = "gemini_reason"
+    }
+}
+
+struct NewsComparisonResponse: Codable {
+    let text: String
+    let jev: JEVComparisonResult
+    let gemini: GeminiClassification
+    let comparison: ComparisonResult
+}
