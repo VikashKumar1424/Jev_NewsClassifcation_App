@@ -1,6 +1,6 @@
 # JEV News Classifier
 
-A SwiftUI iOS frontend backed by a Python FastAPI backend for classifying news. The backend uses JEV to determine a news category, confidence, specificity, and ambiguity, then uses Gemini to enrich results that need additional context.
+A SwiftUI iOS frontend backed by a Python FastAPI backend for classifying news. The backend uses JEV to determine a news category, confidence, specificity, and ambiguity, then uses Gemini to enrich re[...] 
 
 ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/36601a5d831558f4cc82500db5a049b13aad97d8/jev1.png)
 ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/b474e73b36a7f6ebe3595f1953fc4c3591e2f898/jev2.png)
@@ -14,37 +14,67 @@ The application is split into two cooperating layers:
 - **iOS frontend:** A SwiftUI client that collects news text, sends classification requests, manages loading/error state, and presents the classification decision and supporting details.
 - **Python backend:** A FastAPI service that validates requests, invokes JEV, calculates confidence and ambiguity signals, applies the routing policy, and optionally invokes Gemini for summaries.
 
-The iOS app never calls JEV or Gemini directly. It communicates with the backend through the versioned `POST /api/v1/news/classify` endpoint. This keeps API credentials and classification policy on the server while giving the frontend a stable response contract.
+The iOS app never calls JEV or Gemini directly. It communicates with the backend through the versioned `POST /api/v1/news/classify` endpoint. This keeps API credentials and classification policy on th[...] 
 
 ### System architecture
 
 ```mermaid
 flowchart LR
     User[User enters headline or article] --> UI[SwiftUI ContentView]
-    UI --> Store[NewsStore\nMainActor observable state]
-    Store --> APIClient[NewsAPIService\nURLSession POST /api/v1/news/classify]
-    APIClient -->|JSON request| FastAPI[FastAPI application\napp.main:app]
-    FastAPI --> Router[News router\n/api/v1/news/classify]
-    Router --> Schemas[NewsRequest validation\nNewsResponse serialization]
-    Schemas --> Classifier[ClassifierService\norchestration and policy]
+    UI --> Store[NewsStore
+@Observable + loading/error state]
+    Store --> API[NewsAPIService
+POST /api/v1/news/classify
+POST /api/v1/news/compare]
+    API -->|JSON request| FastAPI[FastAPI app
+app.main:app]
+    FastAPI --> Root[Root + health endpoints
+/ and /health]
+    FastAPI --> Router[News router
+/api/v1/news]
+    Router --> Classify[POST /classify
+ClassifierService.classify]
+    Router --> Compare[POST /compare
+ClassifierService.compare]
 
-    Classifier --> JEV[JevService\nTypeSafe JEV client]
-    JEV --> Signals[Category, probabilities,\nconfidence, specificity]
-    Signals --> Margin[Top-1 / Top-2\nconfidence margin]
-    Margin --> Gate{Specificity >= 0.50\nand confidence policy?}
+    Classify --> Request[NewsRequest
+text: str (min_length=5)]
+    Request --> Service[ClassifierService]
+    Service --> JEV[JevService
+AsyncTypeSafeClient.system_one]
+    JEV --> Signals[category, confidence,
+probabilities, specificity,
+question scores, latency]
 
-    Gate -->|Specificity fails| GeminiSpecific[GeminiService\nsummary]
-    Gate -->|Specific and high confidence\nwith margin >= 0.15| JEVOnly[JEV-only result]
-    Gate -->|Medium confidence or\nweak margin| GeminiEnriched[GeminiService\nsummary]
-    Gate -->|Low confidence| GeminiReview[GeminiService\nsummary + review flag]
+    Signals --> AutoRouter[AutoRouter.decide]
+    AutoRouter -->|specificity < 0.50| HumanReview[human_review]
+    AutoRouter -->|margin < 0.15| FollowUp[ask_follow_up]
+    AutoRouter -->|confidence >= 0.90| JEVOnly[jev_only]
+    AutoRouter -->|0.60 <= confidence < 0.90| GeminiCheck[jev_then_gemini]
+    AutoRouter -->|confidence < 0.60| HumanReview
 
-    GeminiSpecific --> Response[NewsResponse]
+    GeminiCheck --> Gemini[GeminiService
+generate_content JSON classification]
+    Gemini --> Check{Same category?
+JEV vs Gemini}
+    Check -->|Yes / accepted| Response[NewsResponse]
+    Check -->|Mismatch| HumanReview
+    Check -->|Unavailable| GeminiFallback[Gemini fallback summary
+needs_human_review = true]
+
     JEVOnly --> Response
-    GeminiEnriched --> Response
-    GeminiReview --> Response
-    Response -->|JSON response| APIClient
-    APIClient --> Store
-    Store --> Result[SwiftUI result card\ncategory, confidence, margin,\nsummary, probabilities, routing]
+    HumanReview --> Response
+    FollowUp --> Response
+    GeminiFallback --> Response
+
+    Compare --> Benchmark[Comparison payload
+JEV + Gemini + routing metadata]
+    Benchmark --> API
+    Response -->|JSON response| API
+    API --> Store
+    Store --> Result[SwiftUI result card
+category, confidence, margin,
+summary, processing_path]
 ```
 
 ### Backend architecture (`jev-news-classifier`)
@@ -54,16 +84,17 @@ The backend follows a layered FastAPI design:
 1. **Application layer (`app/main.py`)** creates the FastAPI application, registers the news router, and exposes root and health endpoints.
 2. **API layer (`app/api/routes/news.py`)** receives `NewsRequest`, calls the classifier orchestration service, and returns a validated `NewsResponse`.
 3. **Schema layer (`app/models/news.py`)** validates incoming text and defines the JSON contract shared with the iOS frontend.
-4. **Orchestration layer (`app/services/classifier_service.py`)** calls JEV first, derives top-1/top-2 probabilities and their margin, applies specificity and confidence thresholds, and chooses the processing path.
+4. **Orchestration layer (`app/services/classifier_service.py`)** calls JEV first, derives top-1/top-2 probabilities and their margin, applies the routing policy, and chooses the processing path.
 5. **JEV integration (`app/services/jev_service.py`)** communicates with TypeSafe JEV and returns the category, probabilities, confidence, specificity, and specificity score.
 6. **Gemini integration (`app/services/gemini_service.py`)** creates summaries for non-specific, ambiguous, or lower-confidence inputs and provides safe fallback behavior when Gemini is unavailable.
+7. **Routing layer (`app/router/auto_router.py`)** decides whether to return `jev_only`, `jev_then_gemini`, `ask_follow_up`, or `human_review` based on specificity, confidence, and top-two margin.
 
 ### iOS frontend architecture (`NewsJev_ios`)
 
 The iOS client uses a simple presentation/state/networking separation:
 
-1. **View (`UI/ContentView.swift`)** collects a headline or article and renders the category, confidence level, top-two comparison, confidence margin, decision reason, processing path, summary, probabilities, and human-review status.
-2. **State (`State/NewsStore.swift`)** is a `@MainActor`/`@Observable` state layer. It owns the `idle`, `loading`, `loaded`, and `error` states, cancels an in-flight request when needed, and publishes the decoded result to the view.
+1. **View (`UI/ContentView.swift`)** collects a headline or article and renders the category, confidence level, top-two comparison, confidence margin, decision reason, processing path, summary, probabilities, and review state.
+2. **State (`State/NewsStore.swift`)** is a `@MainActor`/`@Observable` state layer. It owns the `idle`, `loading`, `loaded`, and `error` states, cancels an in-flight request when needed, and publishes the result.
 3. **API client (`APIServices/NewsAPIService.swift`)** builds the HTTP POST request, encodes `NewsRequest`, validates 2xx responses, maps failures to `APIError`, and decodes `NewsResponse`.
 4. **Models (`Model/NewsModel.swift`)** define the Codable request and response types, including mappings between backend snake_case fields and Swift property names.
 5. **Application entry point (`NewsJevApp.swift`)** creates the SwiftUI application and presents `ContentView`.
@@ -75,16 +106,17 @@ The iOS client uses a simple presentation/state/networking separation:
 3. `NewsAPIService` sends JSON to `POST /api/v1/news/classify`.
 4. FastAPI validates the request using `NewsRequest` and delegates to `ClassifierService`.
 5. `JevService` classifies the text as `technology`, `business`, `sports`, `politics`, `entertainment`, `science`, `health`, or `other` and returns probability signals plus specificity.
-6. `ClassifierService` calculates the top-1/top-2 confidence margin and applies the routing policy.
-7. If the result is routed to Gemini, `GeminiService` generates a summary. Gemini failures produce a safe fallback summary and require human review.
+6. `AutoRouter` calculates the top-1/top-2 confidence margin and applies the routing policy.
+7. If the result is routed to Gemini, `GeminiService` generates a JSON classification and compares it to JEV; mismatches or outages trigger review/fallback behavior.
 8. The backend serializes `NewsResponse`; the iOS client decodes it and `ContentView` renders the result card.
 
 ### Backend decision policy
 
-- **Non-specific input (`specificity_score < 0.50`):** invoke Gemini and set `needs_human_review = true`.
-- **High confidence (`confidence >= 0.90`) with a strong margin (`margin >= 0.15`):** return a `jev_only` result without human review.
-- **Medium confidence (`confidence >= 0.60`) or a weak top-two margin (`margin < 0.15`):** invoke Gemini and return `jev_then_gemini`.
-- **Low confidence (`confidence < 0.60`):** invoke Gemini, return `jev_then_gemini`, and set `needs_human_review = true`.
+- **Non-specific input (`specificity_score < 0.50`):** route to `human_review` and set `needs_human_review = true`.
+- **Ambiguous input (`margin < 0.15`):** route to `ask_follow_up` and ask for the primary focus of the news.
+- **High confidence (`confidence >= 0.90`):** return a `jev_only` result without human review.
+- **Medium confidence (`confidence >= 0.60`):** call Gemini and return `jev_then_gemini`.
+- **Low confidence (`confidence < 0.60`):** route to `human_review` and set `needs_human_review = true`.
 - **Gemini failure:** return a fallback summary and set `needs_human_review = true`.
 
 ## Repository layout
@@ -105,6 +137,9 @@ The iOS client uses a simple presentation/state/networking separation:
 │   │   ├── main.py                     # FastAPI app and health endpoints
 │   │   ├── api/routes/news.py          # News classification route
 │   │   ├── models/news.py              # Pydantic schemas
+│   │   ├── router/
+│   │   │   ├── auto_router.py          # Routing rules and thresholds
+│   │   │   └── route_models.py         # Enum + route metadata models
 │   │   └── services/
 │   │       ├── classifier_service.py  # Routing and thresholds
 │   │       ├── jev_service.py         # TypeSafe JEV classification
@@ -164,7 +199,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/news/classify \
   -d '{"text":"Apple announced a new artificial intelligence feature for its devices."}'
 ```
 
-The response includes `category`, `confidence`, `top_category`, `top_confidence`, `second_category`, `second_confidence`, `confidence_margin`, `probabilities`, `summary`, `needs_human_review`, `processing_path`, `specificity`, `specificity_score`, and `decision_reason`.
+The response includes `category`, `confidence`, `top_category`, `top_confidence`, `second_category`, `second_confidence`, `confidence_margin`, `probabilities`, `summary`, `needs_human_review`, `proces[...] 
 
 ## iOS frontend setup
 
@@ -174,7 +209,7 @@ The response includes `category`, `confidence`, `top_category`, `top_confidence`
 4. Build and run the app.
 5. Enter a headline or article and tap **Classify News**.
 
-The development API URL is configured in `NewsJev_ios/NewsJev/APIServices/NewsAPIService.swift` as `http://127.0.0.1:8000`. This works for an iOS Simulator running on the same Mac. For a physical device, replace it with the Mac's local network address and configure the appropriate network permissions.
+The development API URL is configured in `NewsJev_ios/NewsJev/APIServices/NewsAPIService.swift` as `http://127.0.0.1:8000`. This works for an iOS Simulator running on the same Mac. For a physical devi[...] 
 
 ## API reference
 
