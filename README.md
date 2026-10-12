@@ -4,7 +4,7 @@ A SwiftUI iOS frontend backed by a Python FastAPI backend for classifying news. 
 
 ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/36601a5d831558f4cc82500db5a049b13aad97d8/jev1.png)
 ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/b474e73b36a7f6ebe3595f1953fc4c3591e2f898/jev2.png)
-![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/b474e73b36a7f6ebe3595f1953fc4c3591e2f898/jev2.png)
+![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/83681f206d74d8a93bd7ec1958a93bd558daa8d2/jev3.png)
 ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/b474e73b36a7f6ebe3595f1953fc4c3591e2f898/jev2.png)
 
 ## Architecture
