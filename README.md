@@ -1,6 +1,6 @@
 # JEV News Classifier
 
-A SwiftUI iOS frontend backed by a Python FastAPI backend for classifying news. The backend uses JEV to determine a news category, confidence, specificity, and ambiguity, then uses Gemini to enrich the result when the routing policy calls for a second opinion.
+A SwiftUI iOS frontend backed by a Python FastAPI backend for classifying news. The backend uses JEV to determine a news category, confidence, specificity, and ambiguity, then uses Gemini to enrich the response when needed.
 
 ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/36601a5d831558f4cc82500db5a049b13aad97d8/jev1.png)
 ![Image Alt](https://github.com/VikashKumar1424/Jev_NewsClassifcation_App/blob/b474e73b36a7f6ebe3595f1953fc4c3591e2f898/jev2.png)
@@ -11,70 +11,64 @@ A SwiftUI iOS frontend backed by a Python FastAPI backend for classifying news. 
 
 This repository is organized into two cooperating runtime layers:
 
-- **iOS frontend (`NewsJev_ios/NewsJev`):** A SwiftUI client that captures user-entered text, submits classification requests, handles loading/error states, and renders the classification outcome and supporting metadata.
+- **iOS frontend (`NewsJev_ios/NewsJev`):** A SwiftUI client that captures user-entered text, submits classification requests, handles loading/error states, and renders the classification outcome.
 - **Python backend (`jev-news-classifier`):** A FastAPI service that validates input, invokes JEV, applies category-routing logic, and optionally calls Gemini for a second-pass validation or summary.
 
-The Swift client never calls JEV or Gemini directly. It communicates with the backend through the versioned `/api/v1/news` endpoints. This keeps model credentials, policy logic, and route decisions inside the backend service instead of exposing them to the mobile app.
+The Swift client never calls JEV or Gemini directly. It communicates with the backend through the versioned `/api/v1/news` endpoints. This keeps model credentials, policy logic, and routing decisions on the server side.
 
-### System architecture
+### System architecture (block diagram)
+
+The diagram below uses a block-style layout to show the major runtime components and the primary request/response paths between the iOS client and the backend classifier stack.
 
 ```mermaid
-flowchart LR
-    User[User enters headline or article] --> UI[SwiftUI ContentView]
-    UI --> Store[NewsState
-@MainActor + @Observable]
-    Store --> API[NewsAPIService
-POST /api/v1/news/classify
-POST /api/v1/news/compare]
-    API -->|JSON request| FastAPI[FastAPI app
-app.main:app]
-    FastAPI --> Root[Root + health endpoints
-/ and /health]
-    FastAPI --> Router[News router
-/api/v1/news]
-    Router --> Classify[POST /classify
-ClassifierService.classify]
-    Router --> Compare[POST /compare
-ClassifierService.compare]
+flowchart TB
+  subgraph Frontend
+    direction TB
+    User[User\n(enters headline/article)] --> UI[SwiftUI\nContentView]
+    UI --> Store[NewsState\n@MainActor @Observable]
+    Store --> APIClient[NewsAPIService\nPOST /api/v1/news/classify]
+  end
 
-    Classify --> Request[NewsRequest
-text: str (min_length=5)]
-    Request --> Service[ClassifierService]
-    Service --> JEV[JevService
-AsyncTypeSafeClient.system_one]
-    JEV --> Signals[category, confidence,
-probabilities, specificity,
-question scores, latency]
+  subgraph Backend
+    direction TB
+    API[FastAPI app\napp.main:app] --> Router[News router\n/api/v1/news]
+    Router --> Classify[ClassifierService.classify]
+    Router --> Compare[ClassifierService.compare]
 
-    Signals --> AutoRouter[AutoRouter.decide]
-    AutoRouter -->|specificity < 0.50| HumanReview[human_review]
-    AutoRouter -->|margin < 0.15| FollowUp[ask_follow_up]
-    AutoRouter -->|confidence >= 0.90| JEVOnly[jev_only]
-    AutoRouter -->|0.60 <= confidence < 0.90| GeminiCheck[jev_then_gemini]
-    AutoRouter -->|confidence < 0.60| HumanReview
+    Classify --> Validate[NewsRequest\nPydantic validation]
+    Validate --> Orchestrator[ClassifierService\norchestration & routing]
 
-    GeminiCheck --> Gemini[GeminiService
-generate_content JSON classification]
-    Gemini --> Check{Same category?
-JEV vs Gemini}
-    Check -->|Yes / accepted| Response[NewsResponse]
-    Check -->|Mismatch| HumanReview
-    Check -->|Unavailable| GeminiFallback[Gemini fallback summary
-needs_human_review = true]
+    Orchestrator --> JEV[JevService\nTypeSafe JEV client]
+    Orchestrator --> Gemini[GeminiService\noptional second-pass]
+    JEV --> Signals[category, confidence, probabilities, specificity, latency]
+    Gemini --> GeminiSignals[category, confidence, summary]
 
-    JEVOnly --> Response
-    HumanReview --> Response
-    FollowUp --> Response
-    GeminiFallback --> Response
+    Orchestrator --> AutoRouter[AutoRouter\napply routing policy]
+    AutoRouter -->|high confidence| JEVOnly[jev_only\nreturn response]
+    AutoRouter -->|medium confidence| GeminiCheck[jev_then_gemini\ncompare results]
+    AutoRouter -->|low confidence or non-specific| HumanReview[human_review\nneeds_human_review = true]
+    AutoRouter -->|ambiguous| FollowUp[ask_follow_up\nrequest clarifying input]
 
-    Compare --> Benchmark[Comparison payload
-JEV + Gemini + routing metadata]
-    Benchmark --> API
-    Response -->|JSON response| API
-    API --> Store
-    Store --> Result[SwiftUI result card
-category, confidence, margin,
-summary, processing_path]
+    GeminiCheck --> CompareDecision{JEV == Gemini?}
+    CompareDecision -->|yes| Accepted[accept & return]
+    CompareDecision -->|no| HumanReview
+  end
+
+  %% Cross-boundary flows
+  APIClient -->|JSON request| API
+  API -->|JSON response| APIClient
+  APIClient --> Store
+  Store --> ResultCard[SwiftUI result card\ncategory, confidence, margin, summary, processing_path]
+  Accepted --> Response[NewsResponse JSON]
+  JEVOnly --> Response
+  HumanReview --> Response
+  FollowUp --> Response
+  Response --> API
+  API --> APIClient
+
+  %% Notes
+  classDef service fill:#f9f,stroke:#333,stroke-width:1px;
+  class Orchestrator,JEV,Gemini,AutoRouter service;
 ```
 
 ### Backend architecture (`jev-news-classifier`)
@@ -94,7 +88,7 @@ The backend follows a layered FastAPI design:
 The client follows a lightweight presentation/state/networking split:
 
 1. **View (`UI/ContentView.swift`)** collects a headline or article and renders the category, confidence metrics, top-two comparison, summary, and decision reason.
-2. **State (`State/NewsState.swift`)** is a `@MainActor`/`@Observable` layer that manages `idle`, `loading`, `loaded`, and `error` states, cancels in-flight requests, and exposes the latest response.
+2. **State (`State/NewsState.swift`)** is a `@MainActor`/`@Observable` layer that manages `idle`, `loading`, `loaded`, and `error` states, cancels in-flight requests, and exposes the latest response data to views.
 3. **API client (`APIServices/NewsAPIService.swift`)** builds the HTTP requests, serializes `NewsRequest`, validates 2xx responses, and decodes the `NewsResponse` payload.
 4. **Models (`Model/NewsModel.swift`)** define the request/response contracts used across the Swift codebase, including the mapping between backend snake_case fields and Swift property names.
 5. **Application entry point (`NewsJevApp.swift`)** creates the SwiftUI app and presents the main screen.
@@ -209,7 +203,7 @@ The response includes `category`, `confidence`, `top_category`, `top_confidence`
 4. Build and run the app.
 5. Enter a headline or article and tap **Classify News**.
 
-The development API URL is configured in `NewsJev_ios/NewsJev/APIServices/NewsAPIService.swift` as `http://127.0.0.1:8000`. This works for an iOS Simulator running on the same Mac. For a physical device or remote host, update the base URL in the service and ensure the backend is reachable from that device.
+The development API URL is configured in `NewsJev_ios/NewsJev/APIServices/NewsAPIService.swift` as `http://127.0.0.1:8000`. This works for an iOS Simulator running on the same Mac. For a physical device, update the base URL to a reachable host or use a tunneling service.
 
 ## API reference
 
